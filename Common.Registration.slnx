@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="Common.Registration.csproj" />
-  <Project Path="Common.Registration.Tests/Common.Registration.Tests.csproj" />
-</Solution>
