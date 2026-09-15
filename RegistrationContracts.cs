@@ -1,52 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Reflection;
 using System.Text.Json.Nodes;
 
 namespace Common.Registration;
 
-public sealed record ConfigurationRequirement(string Key, bool Required, string? Description = null, bool Secret = false);
-
-public sealed record ComponentIdentity(
-    string Application,
-    string Component,
-    string Version,
-    string Environment,
-    string Host,
-    IReadOnlyList<ConfigurationRequirement> ConfigurationNeeds)
-{
-    public static ComponentIdentity Detect(
-        string application,
-        string component,
-        IEnumerable<ConfigurationRequirement> configurationNeeds,
-        string? environment = null,
-        Assembly? assembly = null)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(application);
-        ArgumentException.ThrowIfNullOrWhiteSpace(component);
-        assembly ??= Assembly.GetEntryAssembly();
-        var version = assembly?.GetName().Version?.ToString() ?? "unknown";
-        return new ComponentIdentity(
-            application,
-            component,
-            version,
-            environment ?? System.Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production",
-            Dns.GetHostName(),
-            configurationNeeds.ToArray());
-    }
-}
-
-public sealed record RegistrationOptions(Uri ConfigurationBaseUri, string? RegistrationKey = null, TimeSpan? RequestTimeout = null, TimeSpan? RetryDelay = null);
+public sealed record RegistrationOptions(Uri ConfigurationBaseUri, string? RegistrationKey = null, TimeSpan? RequestTimeout = null);
 
 public sealed record RegistrationResult(bool Succeeded, HttpStatusCode? StatusCode, DateTimeOffset AttemptedAtUtc, string? Error)
 {
     public static RegistrationResult Success(HttpStatusCode code) => new(true, code, DateTimeOffset.UtcNow, null);
     public static RegistrationResult Failure(string error, HttpStatusCode? code = null) => new(false, code, DateTimeOffset.UtcNow, error);
-}
-
-public interface IComponentRegistrar
-{
-    Task<RegistrationResult> RegisterAsync(ComponentIdentity identity, CancellationToken cancellationToken = default);
 }
 
 public interface IConfigurationContractRegistrar
@@ -113,7 +76,7 @@ public static class ConfigurationContractPolicy
     }
 }
 
-public sealed class ConfigurationRegistrar : IComponentRegistrar, IConfigurationContractRegistrar
+public sealed class ConfigurationRegistrar : IConfigurationContractRegistrar
 {
     private readonly HttpClient _http;
     private readonly RegistrationOptions _options;
@@ -125,9 +88,6 @@ public sealed class ConfigurationRegistrar : IComponentRegistrar, IConfiguration
         _http.BaseAddress = options.ConfigurationBaseUri;
         _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(5);
     }
-
-    public Task<RegistrationResult> RegisterAsync(ComponentIdentity identity, CancellationToken cancellationToken = default)
-        => SendAsync(JsonContent.Create(identity), cancellationToken);
 
     public Task<RegistrationResult> RegisterContractAsync(JsonObject contract, CancellationToken cancellationToken = default)
         => SendAsync(JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract)), cancellationToken);
@@ -153,33 +113,6 @@ public sealed class ConfigurationRegistrar : IComponentRegistrar, IConfiguration
         catch (HttpRequestException ex)
         {
             return RegistrationResult.Failure($"Configuration registration failed: {ex.Message}");
-        }
-    }
-}
-
-public sealed class RegistrationRetryLoop
-{
-    private readonly IComponentRegistrar _registrar;
-    private readonly TimeSpan _retryDelay;
-
-    public RegistrationRetryLoop(IComponentRegistrar registrar, TimeSpan? retryDelay = null)
-    {
-        _registrar = registrar;
-        _retryDelay = retryDelay ?? TimeSpan.FromSeconds(30);
-    }
-
-    public async Task<RegistrationResult> RunUntilRegisteredAsync(
-        ComponentIdentity identity,
-        Action<RegistrationResult>? observeAttempt = null,
-        CancellationToken cancellationToken = default)
-    {
-        while (true)
-        {
-            var result = await _registrar.RegisterAsync(identity, cancellationToken).ConfigureAwait(false);
-            observeAttempt?.Invoke(result);
-            if (result.Succeeded)
-                return result;
-            await Task.Delay(_retryDelay, cancellationToken).ConfigureAwait(false);
         }
     }
 }
