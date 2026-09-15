@@ -1,0 +1,25 @@
+name: Common Registration CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore library
+        run: dotnet restore Common.Registration.csproj
+      - name: Build library
+        run: dotnet build Common.Registration.csproj --no-restore --configuration Release
+      - name: Restore tests
+        run: dotnet restore Common.Registration.Tests/Common.Registration.Tests.csproj
+      - name: Test
+        run: dotnet test Common.Registration.Tests/Common.Registration.Tests.csproj --no-restore --configuration Release
