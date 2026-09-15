@@ -67,17 +67,25 @@ public static class ConfigurationContractPolicy
         "example"
     };
 
+    private static readonly IReadOnlyDictionary<string, int> RequirementKindWireValues =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Configuration"] = 0,
+            ["Secret"] = 1,
+            ["ExternalService"] = 2
+        };
+
     public static JsonObject MetadataOnly(JsonObject contract)
     {
         ArgumentNullException.ThrowIfNull(contract);
         var copy = JsonNode.Parse(contract.ToJsonString())?.AsObject()
             ?? throw new InvalidOperationException("Configuration contract could not be cloned.");
 
-        RemoveValueBearingFields(copy);
+        NormalizeForConfigurationWire(copy);
         return copy;
     }
 
-    private static void RemoveValueBearingFields(JsonNode? node)
+    private static void NormalizeForConfigurationWire(JsonNode? node)
     {
         switch (node)
         {
@@ -85,13 +93,21 @@ public static class ConfigurationContractPolicy
                 foreach (string field in ValueBearingFields)
                     obj.Remove(field);
 
+                if (obj["kind"] is JsonValue kindValue &&
+                    kindValue.TryGetValue<string>(out string? kindName) &&
+                    kindName is not null &&
+                    RequirementKindWireValues.TryGetValue(kindName, out int wireValue))
+                {
+                    obj["kind"] = wireValue;
+                }
+
                 foreach (JsonNode? child in obj.Select(property => property.Value).ToArray())
-                    RemoveValueBearingFields(child);
+                    NormalizeForConfigurationWire(child);
                 break;
 
             case JsonArray array:
                 foreach (JsonNode? child in array)
-                    RemoveValueBearingFields(child);
+                    NormalizeForConfigurationWire(child);
                 break;
         }
     }
