@@ -10,7 +10,7 @@ public sealed class RegistrationTests
     {
         var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-        var result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
+        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
         Assert.False(result.Succeeded);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
     }
@@ -20,19 +20,9 @@ public sealed class RegistrationTests
     {
         var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-        var result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
+        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
         Assert.True(result.Succeeded);
         Assert.Equal(HttpStatusCode.OK, result.StatusCode);
-    }
-
-    [Fact]
-    public void Identity_UsesDeclaredNeedsWithoutInventingValues()
-    {
-        var needs = new[] { new ConfigurationRequirement("Database:ConnectionString", true, "Database connection", true) };
-        var identity = ComponentIdentity.Detect("Test", "Worker", needs, "Test");
-        Assert.Single(identity.ConfigurationNeeds);
-        Assert.Equal("Database:ConnectionString", identity.ConfigurationNeeds[0].Key);
-        Assert.True(identity.ConfigurationNeeds[0].Secret);
     }
 
     [Fact]
@@ -77,20 +67,8 @@ public sealed class RegistrationTests
             return new HttpResponseMessage(HttpStatusCode.OK);
         }));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-        JsonObject contract = new()
-        {
-            ["applicationId"] = "Test",
-            ["requirements"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["id"] = "token",
-                    ["kind"] = "Secret",
-                    ["isConfigured"] = true,
-                    ["safeDisplayValue"] = "must-not-leave-process"
-                }
-            }
-        };
+        JsonObject contract = ValidContract();
+        contract["requirements"]!.AsArray()[0]!["safeDisplayValue"] = "must-not-leave-process";
 
         RegistrationResult result = await registrar.RegisterContractAsync(contract);
 
@@ -108,7 +86,7 @@ public sealed class RegistrationTests
         var client = new HttpClient(new StubHandler((_, _) => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"))));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
 
-        RegistrationResult result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
+        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
 
         Assert.False(result.Succeeded);
         Assert.Null(result.StatusCode);
@@ -121,12 +99,32 @@ public sealed class RegistrationTests
         var client = new HttpClient(new StubHandler((_, _) => Task.FromException<HttpResponseMessage>(new TaskCanceledException("timeout"))));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
 
-        RegistrationResult result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
+        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
 
         Assert.False(result.Succeeded);
         Assert.Null(result.StatusCode);
         Assert.Contains("timed out", result.Error, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static JsonObject ValidContract() => new()
+    {
+        ["applicationId"] = "Test",
+        ["displayName"] = "Test",
+        ["version"] = "1.0.0",
+        ["requirements"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["id"] = "token",
+                ["displayName"] = "Token",
+                ["kind"] = "Secret",
+                ["required"] = true,
+                ["purpose"] = "Test registration contract",
+                ["configurationKey"] = "Test:Token",
+                ["isConfigured"] = true
+            }
+        }
+    };
 
     private sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response) : HttpMessageHandler
     {
