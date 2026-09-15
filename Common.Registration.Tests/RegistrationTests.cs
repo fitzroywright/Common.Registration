@@ -8,7 +8,7 @@ public sealed class RegistrationTests
     [Fact]
     public async Task NonSuccessHttpResponse_IsNeverReportedAsSuccess()
     {
-        var client = new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
         var result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
         Assert.False(result.Succeeded);
@@ -18,7 +18,7 @@ public sealed class RegistrationTests
     [Fact]
     public async Task SuccessfulHttpResponse_IsReportedAsSuccess()
     {
-        var client = new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)));
+        var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));
         var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
         var result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
         Assert.True(result.Succeeded);
@@ -61,11 +61,72 @@ public sealed class RegistrationTests
         Assert.DoesNotContain("resolved-secret", json, StringComparison.Ordinal);
         Assert.Contains("Database:ConnectionString", json, StringComparison.Ordinal);
         Assert.Contains("isConfigured", json, StringComparison.Ordinal);
+        Assert.Equal("top-secret", contract["value"]!.GetValue<string>());
     }
 
-    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
+    [Fact]
+    public async Task RegisterContractAsync_SendsSanitizedPayload()
+    {
+        string? body = null;
+        var client = new HttpClient(new StubHandler(async (request, cancellationToken) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
+        JsonObject contract = new()
+        {
+            ["applicationId"] = "Test",
+            ["requirements"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["key"] = "Secrets:Token",
+                    ["isConfigured"] = true,
+                    ["safeDisplayValue"] = "must-not-leave-process"
+                }
+            }
+        };
+
+        RegistrationResult result = await registrar.RegisterContractAsync(contract);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(body);
+        Assert.Contains("Secrets:Token", body, StringComparison.Ordinal);
+        Assert.Contains("isConfigured", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("must-not-leave-process", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("safeDisplayValue", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TransportFailure_IsNeverReportedAsSuccess()
+    {
+        var client = new HttpClient(new StubHandler((_, _) => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"))));
+        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
+
+        RegistrationResult result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.StatusCode);
+        Assert.Contains("offline", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Timeout_IsNeverReportedAsSuccess()
+    {
+        var client = new HttpClient(new StubHandler((_, _) => Task.FromException<HttpResponseMessage>(new TaskCanceledException("timeout"))));
+        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
+
+        RegistrationResult result = await registrar.RegisterAsync(ComponentIdentity.Detect("Test", "Web", Array.Empty<ConfigurationRequirement>()));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.StatusCode);
+        Assert.Contains("timed out", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(response(request));
+            response(request, cancellationToken);
     }
 }
