@@ -36,7 +36,7 @@ public sealed class RegistrationTests
     }
 
     [Fact]
-    public void MetadataOnly_RemovesValueBearingFieldsRecursively()
+    public void MetadataOnly_RemovesValues_AndNormalizesRequirementKinds()
     {
         JsonObject contract = new()
         {
@@ -45,7 +45,8 @@ public sealed class RegistrationTests
             {
                 new JsonObject
                 {
-                    ["key"] = "Database:ConnectionString",
+                    ["id"] = "database",
+                    ["kind"] = "ExternalService",
                     ["isConfigured"] = true,
                     ["defaultValue"] = "fallback",
                     ["details"] = new JsonObject { ["resolvedValue"] = "resolved-secret" }
@@ -54,14 +55,16 @@ public sealed class RegistrationTests
         };
 
         JsonObject sanitized = ConfigurationContractPolicy.MetadataOnly(contract);
+        JsonObject requirement = sanitized["requirements"]!.AsArray()[0]!.AsObject();
         string json = sanitized.ToJsonString();
 
         Assert.DoesNotContain("top-secret", json, StringComparison.Ordinal);
         Assert.DoesNotContain("fallback", json, StringComparison.Ordinal);
         Assert.DoesNotContain("resolved-secret", json, StringComparison.Ordinal);
-        Assert.Contains("Database:ConnectionString", json, StringComparison.Ordinal);
-        Assert.Contains("isConfigured", json, StringComparison.Ordinal);
+        Assert.True(requirement["isConfigured"]!.GetValue<bool>());
+        Assert.Equal(2, requirement["kind"]!.GetValue<int>());
         Assert.Equal("top-secret", contract["value"]!.GetValue<string>());
+        Assert.Equal("ExternalService", contract["requirements"]!.AsArray()[0]!["kind"]!.GetValue<string>());
     }
 
     [Fact]
@@ -81,7 +84,8 @@ public sealed class RegistrationTests
             {
                 new JsonObject
                 {
-                    ["key"] = "Secrets:Token",
+                    ["id"] = "token",
+                    ["kind"] = "Secret",
                     ["isConfigured"] = true,
                     ["safeDisplayValue"] = "must-not-leave-process"
                 }
@@ -92,7 +96,7 @@ public sealed class RegistrationTests
 
         Assert.True(result.Succeeded);
         Assert.NotNull(body);
-        Assert.Contains("Secrets:Token", body, StringComparison.Ordinal);
+        Assert.Contains("\"kind\":1", body, StringComparison.Ordinal);
         Assert.Contains("isConfigured", body, StringComparison.Ordinal);
         Assert.DoesNotContain("must-not-leave-process", body, StringComparison.Ordinal);
         Assert.DoesNotContain("safeDisplayValue", body, StringComparison.OrdinalIgnoreCase);
