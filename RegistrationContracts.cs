@@ -12,6 +12,80 @@ public sealed record RegistrationResult(bool Succeeded, HttpStatusCode? StatusCo
     public static RegistrationResult Failure(string error, HttpStatusCode? code = null) => new(false, code, DateTimeOffset.UtcNow, error);
 }
 
+public enum RegistrationCredentialSource
+{
+    Missing = 0,
+    Environment = 1,
+    SecretProvider = 2,
+    AppSetting = 3
+}
+
+public sealed record RegistrationCredentialResolution(
+    string? Credential,
+    RegistrationCredentialSource Source,
+    string? SecretProviderError = null)
+{
+    public bool Succeeded => !string.IsNullOrWhiteSpace(Credential);
+}
+
+public static class RegistrationCredentialResolver
+{
+    public const string EnvironmentVariableName = "AEGIS_CONFIGURATION_REGISTRATION_KEY";
+    public const string AppSettingKey = "Aegis:Configuration:RegistrationKey";
+
+    public static string SecretNameFor(string applicationId)
+    {
+        if (string.IsNullOrWhiteSpace(applicationId))
+            throw new ArgumentException("Application id is required.", nameof(applicationId));
+
+        return $"configuration/registration/{applicationId.Trim()}";
+    }
+
+    public static async Task<RegistrationCredentialResolution> ResolveAsync(
+        Func<string?> environmentValue,
+        Func<CancellationToken, Task<string?>>? secretProviderValue,
+        Func<string?> appSettingValue,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(environmentValue);
+        ArgumentNullException.ThrowIfNull(appSettingValue);
+
+        string? environment = Normalize(environmentValue());
+        if (environment is not null)
+            return new(environment, RegistrationCredentialSource.Environment);
+
+        string? secretProviderError = null;
+        if (secretProviderValue is not null)
+        {
+            try
+            {
+                string? secret = Normalize(await secretProviderValue(cancellationToken).ConfigureAwait(false));
+                if (secret is not null)
+                    return new(secret, RegistrationCredentialSource.SecretProvider);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                // Secret-provider failure is deliberately non-fatal for bootstrap registration.
+                // Registration must still be able to fall back to the app setting and report truthfully.
+                secretProviderError = $"{exception.GetType().Name}: {exception.Message}";
+            }
+        }
+
+        string? appSetting = Normalize(appSettingValue());
+        if (appSetting is not null)
+            return new(appSetting, RegistrationCredentialSource.AppSetting, secretProviderError);
+
+        return new(null, RegistrationCredentialSource.Missing, secretProviderError);
+    }
+
+    private static string? Normalize(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
 public interface IConfigurationContractRegistrar
 {
     Task<RegistrationResult> RegisterContractAsync(JsonObject contract, CancellationToken cancellationToken = default);
