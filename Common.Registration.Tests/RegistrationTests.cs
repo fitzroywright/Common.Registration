@@ -6,6 +6,67 @@ using Xunit;
 public sealed class RegistrationTests
 {
     [Fact]
+    public async Task CredentialResolver_PrefersEnvironment()
+    {
+        bool secretProviderCalled = false;
+        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
+            () => " environment-key ",
+            _ => { secretProviderCalled = true; return Task.FromResult<string?>("secret-key"); },
+            () => "app-key");
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("environment-key", result.Credential);
+        Assert.Equal(RegistrationCredentialSource.Environment, result.Source);
+        Assert.False(secretProviderCalled);
+    }
+
+    [Fact]
+    public async Task CredentialResolver_UsesSecretProviderWhenEnvironmentMissing()
+    {
+        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
+            () => null,
+            _ => Task.FromResult<string?>("secret-key"),
+            () => "app-key");
+
+        Assert.Equal("secret-key", result.Credential);
+        Assert.Equal(RegistrationCredentialSource.SecretProvider, result.Source);
+    }
+
+    [Fact]
+    public async Task CredentialResolver_FallsBackToAppSettingWhenSecretProviderFails()
+    {
+        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
+            () => null,
+            _ => Task.FromException<string?>(new InvalidOperationException("provider unavailable")),
+            () => "app-key");
+
+        Assert.Equal("app-key", result.Credential);
+        Assert.Equal(RegistrationCredentialSource.AppSetting, result.Source);
+        Assert.Contains("provider unavailable", result.SecretProviderError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CredentialResolver_ReportsMissingWithoutInventingSuccess()
+    {
+        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
+            () => " ",
+            _ => Task.FromResult<string?>(null),
+            () => null);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Credential);
+        Assert.Equal(RegistrationCredentialSource.Missing, result.Source);
+    }
+
+    [Fact]
+    public void CredentialResolver_UsesStandardSecretName()
+    {
+        Assert.Equal(
+            "configuration/registration/Aegis.Cafeteria.Services",
+            RegistrationCredentialResolver.SecretNameFor("Aegis.Cafeteria.Services"));
+    }
+
+    [Fact]
     public async Task NonSuccessHttpResponse_IsNeverReportedAsSuccess()
     {
         var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
