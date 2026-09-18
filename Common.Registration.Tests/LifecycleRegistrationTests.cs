@@ -431,6 +431,79 @@ public sealed class LifecycleRegistrationTests
         }
     }
 
+
+    [Fact]
+    public async Task PurgedServerRecord_ClearsStaleCredential_AndCreatesFreshPending()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            string installationId = identity.InstallationId;
+
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-purged",
+                Credential = "stale-secret"
+            });
+
+            int calls = 0;
+            var handler = new RecordingHandler((request, _) =>
+            {
+                calls++;
+                return request.RequestUri!.AbsolutePath switch
+                {
+                    "/api/registration/authenticate" =>
+                        Json(HttpStatusCode.Unauthorized, new { error = "unknown registration" }),
+
+                    "/api/registration/recovery" =>
+                        Json(HttpStatusCode.NotFound, new { error = "No established registration exists for recovery." }),
+
+                    "/api/registration/request" =>
+                        Json(HttpStatusCode.OK, new
+                        {
+                            registrationId = "reg-fresh",
+                            claimToken = "fresh-claim",
+                            state = "Pending"
+                        }),
+
+                    _ => throw new Xunit.Sdk.XunitException("Unexpected request: " + request.RequestUri)
+                };
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+
+            Assert.Equal(RegistrationLifecycleState.Pending, status.State);
+            Assert.Equal("reg-fresh", status.RegistrationId);
+            Assert.Equal(3, calls);
+
+            RegistrationIdentityDocument persisted =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+
+            Assert.Equal(installationId, persisted.InstallationId);
+            Assert.Equal("reg-fresh", persisted.RegistrationId);
+            Assert.Equal("fresh-claim", persisted.ClaimToken);
+            Assert.Null(persisted.Credential);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
     [Fact]
     public async Task RevokedCredential_DoesNotTriggerAutomaticReregistration()
     {
