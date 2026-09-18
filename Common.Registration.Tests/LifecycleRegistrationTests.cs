@@ -358,6 +358,180 @@ public sealed class LifecycleRegistrationTests
     }
 
 
+
+    [Fact]
+    public async Task ClaimToken_IsConsumedOnce_AndNeverReplayedAfterSuccess()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-once",
+                ClaimToken = "one-time-claim"
+            });
+
+            int claimCalls = 0;
+            int authCalls = 0;
+            var handler = new RecordingHandler((request, _) =>
+            {
+                if (request.RequestUri!.AbsolutePath.EndsWith("/claim", StringComparison.Ordinal))
+                {
+                    claimCalls++;
+                    return Json(HttpStatusCode.OK, new
+                    {
+                        registrationId = "reg-once",
+                        credential = "durable-secret",
+                        state = "Registered"
+                    });
+                }
+
+                if (request.RequestUri.AbsolutePath == "/api/registration/authenticate")
+                {
+                    authCalls++;
+                    Assert.Equal("durable-secret", request.Headers.Authorization?.Parameter);
+                    return Json(HttpStatusCode.OK, new
+                    {
+                        registrationId = "reg-once",
+                        state = "Registered"
+                    });
+                }
+
+                throw new Xunit.Sdk.XunitException("Unexpected request: " + request.RequestUri);
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            Assert.Equal(RegistrationLifecycleState.Registered, (await client.StepAsync()).State);
+            Assert.Equal(RegistrationLifecycleState.Registered, (await client.StepAsync()).State);
+
+            Assert.Equal(1, claimCalls);
+            Assert.Equal(1, authCalls);
+
+            RegistrationIdentityDocument persisted =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            Assert.Null(persisted.ClaimToken);
+            Assert.Equal("durable-secret", persisted.Credential);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task RevokedCredential_DoesNotTriggerAutomaticReregistration()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-revoked",
+                Credential = "revoked-secret"
+            });
+
+            int requests = 0;
+            var handler = new RecordingHandler((request, _) =>
+            {
+                requests++;
+                Assert.Equal("/api/registration/authenticate", request.RequestUri!.AbsolutePath);
+                return Json(HttpStatusCode.Gone, new
+                {
+                    registrationId = "reg-revoked",
+                    state = "Revoked",
+                    error = "Registration is revoked."
+                });
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+
+            Assert.Equal(RegistrationLifecycleState.Revoked, status.State);
+            Assert.Equal(1, requests);
+            Assert.Equal("reg-revoked", status.RegistrationId);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task IdentityConflict_IsTerminalForThatStep_AndDoesNotSelfHeal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-conflict",
+                Credential = "credential"
+            });
+
+            int requests = 0;
+            var handler = new RecordingHandler((request, _) =>
+            {
+                requests++;
+                Assert.Equal("/api/registration/authenticate", request.RequestUri!.AbsolutePath);
+                return Json(HttpStatusCode.Conflict, new
+                {
+                    registrationId = "reg-conflict",
+                    state = "IdentityConflict",
+                    error = "Installation identity conflict."
+                });
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+
+            Assert.Equal(RegistrationLifecycleState.IdentityConflict, status.State);
+            Assert.Equal(1, requests);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
     [Fact]
     public async Task RegistrationLifecycle_DoesNotLogClaimOrPermanentCredential()
     {
