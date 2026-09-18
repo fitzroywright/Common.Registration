@@ -68,63 +68,66 @@ public sealed class RegistrationTests
 
 
     [Fact]
-    public async Task ApplicationRegistration_PendingApprovalThenCredentialIsStoredAndUsed()
+    public async Task ApplicationRegistration_UsesDesignatedEnvironmentVariable()
     {
-        int contractCalls = 0;
-        string credential = "durable-credential";
-        var handler = new StubHandler(async (request, cancellationToken) =>
+        string? authorization = null;
+        var handler = new StubHandler((request, _) =>
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/api/registration/pending"))
-                return Json(HttpStatusCode.OK, """{"registrationId":"reg1","pin":"123456"}""");
-            if (request.RequestUri.AbsolutePath.EndsWith("/credential"))
-                return Json(HttpStatusCode.OK, """{"credential":"durable-credential"}""");
-            if (request.RequestUri.AbsolutePath.EndsWith("/api/registration/contracts"))
-            {
-                contractCalls++;
-                Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
-                Assert.Equal(credential, request.Headers.Authorization?.Parameter);
-                return Json(HttpStatusCode.OK, """{"registered":true}""");
-            }
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
+            authorization = request.Headers.Authorization?.Parameter;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         });
-        var store = new MemoryCredentialStore();
         var client = new ApplicationRegistrationClient(
             new HttpClient(handler),
-            new ApplicationRegistrationOptions(new Uri("http://operations/"), "Aegis.Cafeteria.Services", "Cafeteria Services", "kratos"),
-            store);
+            new ApplicationRegistrationOptions(
+                new Uri("http://operations/"),
+                "Aegis.Cafeteria.Services",
+                "kratos"),
+            name => name == RegistrationCredentialResolver.EnvironmentVariableName ? "registration-key" : null);
 
-        ApplicationRegistrationStatus result = await client.PublishContractAsync(ValidContract());
+        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
 
         Assert.True(result.IsRegistered);
-        Assert.Equal(credential, store.Value);
-        Assert.Equal(1, contractCalls);
+        Assert.Equal("registration-key", authorization);
     }
 
     [Fact]
-    public async Task ApplicationRegistration_InvalidStoredCredentialIsDiscardedAndReturnsPending()
+    public async Task ApplicationRegistration_DoesNotCreatePendingRegistrationWhenEnvironmentVariableIsMissing()
     {
-        var store = new MemoryCredentialStore { Value = "old" };
-        var handler = new StubHandler((request, _) =>
+        bool called = false;
+        var handler = new StubHandler((_, _) =>
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/api/registration/contracts"))
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
-            if (request.RequestUri.AbsolutePath.EndsWith("/api/registration/pending"))
-                return Task.FromResult(Json(HttpStatusCode.OK, """{"registrationId":"reg2","pin":"654321"}"""));
-            if (request.RequestUri.AbsolutePath.EndsWith("/credential"))
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            called = true;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         });
         var client = new ApplicationRegistrationClient(
             new HttpClient(handler),
-            new ApplicationRegistrationOptions(new Uri("http://operations/"), "Aegis.Cafeteria.Services", "Cafeteria Services", "kratos"),
-            store);
+            new ApplicationRegistrationOptions(
+                new Uri("http://operations/"),
+                "Aegis.Cafeteria.Services",
+                "kratos"),
+            _ => null);
 
-        ApplicationRegistrationStatus result = await client.PublishContractAsync(ValidContract());
+        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
 
-        Assert.Equal(ApplicationRegistrationState.Pending, result.State);
-        Assert.Equal("reg2", result.RegistrationId);
-        Assert.Equal("654321", result.Pin);
-        Assert.Null(store.Value);
+        Assert.Equal(ApplicationRegistrationState.MissingCredential, result.State);
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task ApplicationRegistration_RevokedCredentialRequiresBootstrapToBeRepeated()
+    {
+        var client = new ApplicationRegistrationClient(
+            new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Gone)))),
+            new ApplicationRegistrationOptions(
+                new Uri("http://operations/"),
+                "Aegis.Cafeteria.Services",
+                "kratos"),
+            _ => "revoked-key");
+
+        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
+
+        Assert.Equal(ApplicationRegistrationState.Revoked, result.State);
+        Assert.Contains("new pending registration", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -247,19 +250,6 @@ public sealed class RegistrationTests
             }
         }
     };
-
-    private static HttpResponseMessage Json(HttpStatusCode status, string json) => new(status)
-    {
-        Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
-    };
-
-    private sealed class MemoryCredentialStore : IRegistrationCredentialStore
-    {
-        public string? Value { get; set; }
-        public Task<string?> LoadAsync(CancellationToken cancellationToken = default) => Task.FromResult(Value);
-        public Task SaveAsync(string credential, CancellationToken cancellationToken = default) { Value = credential; return Task.CompletedTask; }
-        public Task DeleteAsync(CancellationToken cancellationToken = default) { Value = null; return Task.CompletedTask; }
-    }
 
     private sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response) : HttpMessageHandler
     {
