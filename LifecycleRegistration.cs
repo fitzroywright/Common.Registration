@@ -290,7 +290,18 @@ public sealed class RegistrationLifecycleClient
         });
 
         if (!string.IsNullOrWhiteSpace(document.Credential))
-            return await AuthenticateAsync(document, identity, correlationId, cancellationToken).ConfigureAwait(false);
+        {
+            RegistrationLifecycleStatus authenticated =
+                await AuthenticateAsync(document, identity, correlationId, cancellationToken).ConfigureAwait(false);
+
+            if (authenticated.State != RegistrationLifecycleState.Unregistered)
+                return authenticated;
+
+            document = await _identityStore.LoadOrCreateAsync(
+                _options.ApplicationId,
+                _options.InstanceId,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         if (!string.IsNullOrWhiteSpace(document.RegistrationId) &&
             !string.IsNullOrWhiteSpace(document.ClaimToken))
@@ -537,11 +548,36 @@ public sealed class RegistrationLifecycleClient
 
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            return await RequestRecoveryAsync(
-                document,
-                identity,
-                correlationId,
-                cancellationToken).ConfigureAwait(false);
+            RegistrationLifecycleStatus recovery =
+                await RequestRecoveryAsync(
+                    document,
+                    identity,
+                    correlationId,
+                    cancellationToken).ConfigureAwait(false);
+
+            if (recovery.State == RegistrationLifecycleState.Error &&
+                recovery.StatusCode == HttpStatusCode.NotFound)
+            {
+                await _identityStore.SaveAsync(document with
+                {
+                    RegistrationId = null,
+                    ClaimToken = null,
+                    Credential = null
+                }, cancellationToken).ConfigureAwait(false);
+
+                _logger.LogWarning(
+                    "Server-side registration no longer exists; preserving InstallationId and returning to zero-trust introduction.");
+
+                return Status(
+                    RegistrationLifecycleState.Unregistered,
+                    identity,
+                    null,
+                    "Server-side registration was purged; a fresh pending registration is required.",
+                    HttpStatusCode.NotFound,
+                    correlationId);
+            }
+
+            return recovery;
         }
 
         return Status(RegistrationLifecycleState.Error, identity, document.RegistrationId,
