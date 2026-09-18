@@ -32,15 +32,15 @@ public sealed record RegistrationCredentialResolution(
 
 public static class RegistrationCredentialResolver
 {
-    public const string EnvironmentVariableName = "AEGIS_CONFIGURATION_REGISTRATION_KEY";
-    public const string AppSettingKey = "Aegis:Configuration:RegistrationKey";
+    public const string EnvironmentVariableName = "AEGIS_REGISTRATION_KEY";
+    public const string AppSettingKey = "Aegis:Registration:Key";
 
     public static string SecretNameFor(string applicationId)
     {
         if (string.IsNullOrWhiteSpace(applicationId))
             throw new ArgumentException("Application id is required.", nameof(applicationId));
 
-        return $"configuration/registration/{applicationId.Trim()}";
+        return $"registration/{applicationId.Trim()}";
     }
 
     public static async Task<RegistrationCredentialResolution> ResolveAsync(
@@ -114,9 +114,9 @@ public sealed record ApplicationRegistrationOptions(
     string? CredentialFilePath = null);
 
 /// <summary>
-/// Application-side registration client. It never creates pending registrations,
-/// retrieves PINs, or persists registration keys. Bootstrap is an Operations task.
-/// The application only reads the designated environment variable and attempts registration.
+/// Application-side registration client. Normal applications consume an Operations-issued
+/// registration credential. Trusted control-plane services may request local auto-provisioning
+/// and persist the real issued credential to protected storage.
 /// </summary>
 public sealed class ApplicationRegistrationClient
 {
