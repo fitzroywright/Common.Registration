@@ -132,6 +132,58 @@ public sealed class RegistrationTests
     }
 
     [Fact]
+    public async Task ControlPlaneRegistration_AutoProvisionsOnFirstStart_AndPersistsCredential()
+    {
+        string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "registration.key");
+        int autoProvisionCalls = 0;
+        int contractCalls = 0;
+
+        var handler = new StubHandler((request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/api/registration/control-plane/auto", StringComparison.Ordinal))
+            {
+                autoProvisionCalls++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { credential = "issued-control-plane-key" })
+                });
+            }
+
+            contractCalls++;
+            return Task.FromResult(new HttpResponseMessage(
+                request.Headers.Authorization?.Parameter == "issued-control-plane-key"
+                    ? HttpStatusCode.OK
+                    : HttpStatusCode.Unauthorized));
+        });
+
+        try
+        {
+            var client = new ApplicationRegistrationClient(
+                new HttpClient(handler),
+                new ApplicationRegistrationOptions(
+                    new Uri("http://operations/"),
+                    "Aegis.Configuration",
+                    "kratos",
+                    AutoProvisionControlPlane: true,
+                    CredentialFilePath: temp),
+                _ => null);
+
+            ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
+
+            Assert.True(result.IsRegistered);
+            Assert.Equal(1, autoProvisionCalls);
+            Assert.Equal(1, contractCalls);
+            Assert.Equal("issued-control-plane-key", (await File.ReadAllTextAsync(temp)).Trim());
+        }
+        finally
+        {
+            string? directory = Path.GetDirectoryName(temp);
+            if (directory is not null && Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ControlPlaneRegistration_RotatesRejectedCredential_AndRetries()
     {
         string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "registration.key");
