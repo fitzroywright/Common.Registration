@@ -96,12 +96,29 @@ public sealed class FileRegistrationIdentityStore : IRegistrationIdentityStore
         {
             if (File.Exists(_path))
             {
-                await using FileStream stream = File.OpenRead(_path);
-                RegistrationIdentityDocument? existing =
-                    await JsonSerializer.DeserializeAsync<RegistrationIdentityDocument>(
-                        stream,
-                        JsonOptions,
-                        cancellationToken).ConfigureAwait(false);
+                RegistrationIdentityDocument? existing;
+                if (OperatingSystem.IsWindows())
+                {
+                    byte[] protectedBytes =
+                        await File.ReadAllBytesAsync(_path, cancellationToken).ConfigureAwait(false);
+                    byte[] jsonBytes = ProtectedData.Unprotect(
+                        protectedBytes,
+                        optionalEntropy: null,
+                        DataProtectionScope.CurrentUser);
+                    existing = JsonSerializer.Deserialize<RegistrationIdentityDocument>(
+                        jsonBytes,
+                        JsonOptions);
+                    CryptographicOperations.ZeroMemory(jsonBytes);
+                }
+                else
+                {
+                    await using FileStream stream = File.OpenRead(_path);
+                    existing =
+                        await JsonSerializer.DeserializeAsync<RegistrationIdentityDocument>(
+                            stream,
+                            JsonOptions,
+                            cancellationToken).ConfigureAwait(false);
+                }
 
                 if (existing is null)
                     throw new InvalidOperationException("Registration identity file is empty or invalid.");
@@ -164,24 +181,44 @@ public sealed class FileRegistrationIdentityStore : IRegistrationIdentityStore
             Directory.CreateDirectory(directory);
 
         string temporary = _path + ".tmp-" + Guid.NewGuid().ToString("N");
-        await using (FileStream stream = new(
-            temporary,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            4096,
-            FileOptions.WriteThrough))
+
+        if (OperatingSystem.IsWindows())
         {
+            byte[] jsonBytes = JsonSerializer.SerializeToUtf8Bytes(document, JsonOptions);
+            byte[] protectedBytes = ProtectedData.Protect(
+                jsonBytes,
+                optionalEntropy: null,
+                DataProtectionScope.CurrentUser);
+            try
+            {
+                await File.WriteAllBytesAsync(
+                    temporary,
+                    protectedBytes,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(jsonBytes);
+                CryptographicOperations.ZeroMemory(protectedBytes);
+            }
+        }
+        else
+        {
+            await using FileStream stream = new(
+                temporary,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                4096,
+                FileOptions.WriteThrough);
             await JsonSerializer.SerializeAsync(
                 stream,
                 document,
                 JsonOptions,
                 cancellationToken).ConfigureAwait(false);
             await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
 
         File.Move(temporary, _path, true);
 
