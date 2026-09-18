@@ -131,6 +131,58 @@ public sealed class RegistrationTests
     }
 
     [Fact]
+    public async Task ControlPlaneRegistration_RotatesRejectedCredential_AndRetries()
+    {
+        string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "registration.key");
+        Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
+        await File.WriteAllTextAsync(temp, "stale-key");
+
+        int contractCalls = 0;
+        var handler = new StubHandler(async (request, cancellationToken) =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/api/registration/control-plane/auto", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { credential = "replacement-key" })
+                };
+            }
+
+            contractCalls++;
+            string? key = request.Headers.Authorization?.Parameter;
+            return new HttpResponseMessage(
+                contractCalls == 1 && key == "stale-key"
+                    ? HttpStatusCode.Unauthorized
+                    : key == "replacement-key"
+                        ? HttpStatusCode.OK
+                        : HttpStatusCode.Forbidden);
+        });
+
+        try
+        {
+            var client = new ApplicationRegistrationClient(
+                new HttpClient(handler),
+                new ApplicationRegistrationOptions(
+                    new Uri("http://operations/"),
+                    "Aegis.Diagnostics",
+                    "kratos",
+                    AutoProvisionControlPlane: true,
+                    CredentialFilePath: temp),
+                _ => null);
+
+            ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
+
+            Assert.True(result.IsRegistered);
+            Assert.Equal(2, contractCalls);
+            Assert.Equal("replacement-key", (await File.ReadAllTextAsync(temp)).Trim());
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(temp)!, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NonSuccessHttpResponse_IsNeverReportedAsSuccess()
     {
         var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
