@@ -115,7 +115,7 @@ public sealed class RegistrationTests
     }
 
     [Fact]
-    public async Task ApplicationRegistration_RevokedCredentialRequiresBootstrapToBeRepeated()
+    public async Task ApplicationRegistration_RevokedCredentialRequiresNewPendingRegistration()
     {
         var client = new ApplicationRegistrationClient(
             new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Gone)))),
