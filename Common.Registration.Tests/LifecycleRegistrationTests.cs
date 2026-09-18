@@ -357,6 +357,59 @@ public sealed class LifecycleRegistrationTests
         }
     }
 
+
+    [Fact]
+    public async Task RegistrationLifecycle_DoesNotLogClaimOrPermanentCredential()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-secret-test",
+                ClaimToken = "claim-token-must-not-log"
+            });
+
+            var logger = new CaptureLogger();
+            var handler = new RecordingHandler((request, _) =>
+            {
+                Assert.Equal("/api/registration/reg-secret-test/claim", request.RequestUri!.AbsolutePath);
+                return Json(HttpStatusCode.OK, new
+                {
+                    registrationId = "reg-secret-test",
+                    credential = "permanent-credential-must-not-log",
+                    state = "Registered"
+                });
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store,
+                logger);
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+
+            Assert.Equal(RegistrationLifecycleState.Registered, status.State);
+            string combined = string.Join("\n", logger.Messages);
+            Assert.DoesNotContain("claim-token-must-not-log", combined, StringComparison.Ordinal);
+            Assert.DoesNotContain("permanent-credential-must-not-log", combined, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
     private static HttpResponseMessage Json(HttpStatusCode code, object value)
         => new(code)
         {
@@ -374,4 +427,28 @@ public sealed class LifecycleRegistrationTests
             CancellationToken cancellationToken)
             => Task.FromResult(responder(request, cancellationToken));
     }
+    private sealed class CaptureLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+            => NullScope.Instance;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
+    }
+
 }
