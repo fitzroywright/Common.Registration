@@ -309,6 +309,22 @@ public sealed class RegistrationLifecycleClient
             RegistrationLifecycleStatus claimed =
                 await TryClaimAsync(document, identity, correlationId, cancellationToken).ConfigureAwait(false);
 
+            if (claimed.State == RegistrationLifecycleState.Error &&
+                claimed.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                document = document with { ClaimToken = null };
+                await _identityStore.SaveAsync(document, cancellationToken).ConfigureAwait(false);
+
+                _logger.LogWarning(
+                    "Registration claim is no longer usable; requesting explicit credential recovery.");
+
+                return await RequestRecoveryAsync(
+                    document,
+                    identity,
+                    correlationId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             if (claimed.State != RegistrationLifecycleState.Error ||
                 claimed.StatusCode != HttpStatusCode.NotFound)
                 return claimed;
