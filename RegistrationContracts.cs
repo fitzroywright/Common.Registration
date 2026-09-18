@@ -233,18 +233,40 @@ public sealed class ApplicationRegistrationClient
         Step(LogLevel.Information, "RegistrationKeyFound", "Registration key was found.");
         try
         {
-            Step(LogLevel.Information, "RequestPreparing", "Preparing registration contract request to Operations.");
-            using var request = new HttpRequestMessage(HttpMethod.Post, "api/registration/contracts")
+            async Task<HttpResponseMessage> SendAsync(string key)
             {
-                Content = JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract))
-            };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
-            request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", _options.ApplicationId);
-            request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", _options.InstanceId);
-            request.Headers.TryAddWithoutValidation("X-Aegis-Registration-Attempt-Id", attemptId);
+                Step(LogLevel.Information, "RequestPreparing", "Preparing registration contract request to Operations.");
+                using var request = new HttpRequestMessage(HttpMethod.Post, "api/registration/contracts")
+                {
+                    Content = JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract))
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+                request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", _options.ApplicationId);
+                request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", _options.InstanceId);
+                request.Headers.TryAddWithoutValidation("X-Aegis-Registration-Attempt-Id", attemptId);
+                Step(LogLevel.Information, "RequestSending", "Sending registration contract request to Operations.");
+                return await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            }
 
-            Step(LogLevel.Information, "RequestSending", "Sending registration contract request to Operations.");
-            using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            HttpResponseMessage response = await SendAsync(credential).ConfigureAwait(false);
+            if (_options.AutoProvisionControlPlane &&
+                response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Gone)
+            {
+                response.Dispose();
+                Step(LogLevel.Warning, "ControlPlaneCredentialRecovery", "Stored control-plane registration credential was rejected; rotating it through local Operations auto-provisioning.");
+                if (!string.IsNullOrWhiteSpace(_options.CredentialFilePath) && File.Exists(_options.CredentialFilePath))
+                    File.Delete(_options.CredentialFilePath);
+
+                string? replacement = await AutoProvisionControlPlaneAsync(cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(replacement))
+                    return new(ApplicationRegistrationState.InvalidCredential, DateTimeOffset.UtcNow, "Control-plane registration credential rotation failed.");
+
+                credential = replacement;
+                response = await SendAsync(credential).ConfigureAwait(false);
+            }
+
+            using (response)
+            {
             Step(LogLevel.Information, "ResponseReceived", "Operations returned HTTP {StatusCode}.", (int)response.StatusCode);
             if (response.IsSuccessStatusCode)
             {
@@ -290,6 +312,7 @@ public sealed class ApplicationRegistrationClient
                 DateTimeOffset.UtcNow,
                 $"Operations rejected registration with HTTP {(int)response.StatusCode}.",
                 response.StatusCode);
+            }
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
