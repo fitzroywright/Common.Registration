@@ -248,6 +248,60 @@ public sealed class LifecycleRegistrationTests
         }
     }
 
+    [Fact]
+    public async Task RegisteredIdentity_PublishesConfigurationContractDirectlyToConfiguration()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-1",
+                Credential = "permanent-secret"
+            });
+
+            var handler = new RecordingHandler((request, _) =>
+            {
+                Assert.Equal("/api/contracts/register", request.RequestUri!.AbsolutePath);
+                Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+                Assert.Equal("permanent-secret", request.Headers.Authorization?.Parameter);
+                Assert.Equal("Aegis.Hello", request.Headers.GetValues("X-Aegis-Application-Id").Single());
+                Assert.Equal("Production", request.Headers.GetValues("X-Aegis-Instance-Id").Single());
+                Assert.Equal(identity.InstallationId, request.Headers.GetValues("X-Aegis-Installation-Id").Single());
+                Assert.True(request.Headers.Contains("X-Aegis-Correlation-Id"));
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            HttpStatusCode status = await client.PublishConfigurationContractAsync(
+                new System.Text.Json.Nodes.JsonObject
+                {
+                    ["applicationId"] = "Aegis.Hello",
+                    ["instanceId"] = "Production",
+                    ["requirements"] = new System.Text.Json.Nodes.JsonArray()
+                });
+
+            Assert.Equal(HttpStatusCode.OK, status);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
     private static HttpResponseMessage Json(HttpStatusCode code, object value)
         => new(code)
         {
