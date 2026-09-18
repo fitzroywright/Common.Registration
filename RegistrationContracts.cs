@@ -6,14 +6,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Common.Registration;
 
-public sealed record RegistrationOptions(Uri ConfigurationBaseUri, string? RegistrationKey = null, TimeSpan? RequestTimeout = null);
-
-public sealed record RegistrationResult(bool Succeeded, HttpStatusCode? StatusCode, DateTimeOffset AttemptedAtUtc, string? Error)
-{
-    public static RegistrationResult Success(HttpStatusCode code) => new(true, code, DateTimeOffset.UtcNow, null);
-    public static RegistrationResult Failure(string error, HttpStatusCode? code = null) => new(false, code, DateTimeOffset.UtcNow, error);
-}
-
 public enum RegistrationCredentialSource
 {
     Missing = 0,
@@ -329,11 +321,6 @@ public sealed class ApplicationRegistrationClient
     }
 }
 
-public interface IConfigurationContractRegistrar
-{
-    Task<RegistrationResult> RegisterContractAsync(JsonObject contract, CancellationToken cancellationToken = default);
-}
-
 public static class ConfigurationContractPolicy
 {
     private static readonly HashSet<string> ValueBearingFields = new(StringComparer.OrdinalIgnoreCase)
@@ -389,47 +376,6 @@ public static class ConfigurationContractPolicy
                 foreach (JsonNode? child in array)
                     NormalizeForConfigurationWire(child);
                 break;
-        }
-    }
-}
-
-public sealed class ConfigurationRegistrar : IConfigurationContractRegistrar
-{
-    private readonly HttpClient _http;
-    private readonly RegistrationOptions _options;
-
-    public ConfigurationRegistrar(HttpClient http, RegistrationOptions options)
-    {
-        _http = http;
-        _options = options;
-        _http.BaseAddress = options.ConfigurationBaseUri;
-        _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(5);
-    }
-
-    public Task<RegistrationResult> RegisterContractAsync(JsonObject contract, CancellationToken cancellationToken = default)
-        => SendAsync(JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract)), cancellationToken);
-
-    private async Task<RegistrationResult> SendAsync(HttpContent content, CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "api/contracts/register") { Content = content };
-            if (!string.IsNullOrWhiteSpace(_options.RegistrationKey))
-                request.Headers.TryAddWithoutValidation("X-Aegis-Registration-Key", _options.RegistrationKey);
-
-            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-                return RegistrationResult.Failure($"Configuration rejected registration with HTTP {(int)response.StatusCode}.", response.StatusCode);
-
-            return RegistrationResult.Success(response.StatusCode);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return RegistrationResult.Failure("Configuration registration timed out.");
-        }
-        catch (HttpRequestException ex)
-        {
-            return RegistrationResult.Failure($"Configuration registration failed: {ex.Message}");
         }
     }
 }
