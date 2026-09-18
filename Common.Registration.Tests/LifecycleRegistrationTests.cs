@@ -53,13 +53,15 @@ public sealed class LifecycleRegistrationTests
                 });
             });
 
+            var store = new FileRegistrationIdentityStore(path);
             var client = new RegistrationLifecycleClient(
                 new HttpClient(handler),
                 new RegistrationLifecycleOptions(
                     new Uri("https://configuration.example/"),
                     "Aegis.Hello",
                     "Production",
-                    path));
+                    path),
+                store);
 
             RegistrationLifecycleStatus status = await client.StepAsync();
 
