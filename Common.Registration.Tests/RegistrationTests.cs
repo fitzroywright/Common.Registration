@@ -66,6 +66,70 @@ public sealed class RegistrationTests
             RegistrationCredentialResolver.SecretNameFor("Aegis.Cafeteria.Services"));
     }
 
+
+    [Fact]
+    public async Task ApplicationRegistration_UsesDesignatedEnvironmentVariable()
+    {
+        string? authorization = null;
+        var handler = new StubHandler((request, _) =>
+        {
+            authorization = request.Headers.Authorization?.Parameter;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        });
+        var client = new ApplicationRegistrationClient(
+            new HttpClient(handler),
+            new ApplicationRegistrationOptions(
+                new Uri("http://operations/"),
+                "Aegis.Cafeteria.Services",
+                "kratos"),
+            name => name == RegistrationCredentialResolver.EnvironmentVariableName ? "registration-key" : null);
+
+        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
+
+        Assert.True(result.IsRegistered);
+        Assert.Equal("registration-key", authorization);
+    }
+
+    [Fact]
+    public async Task ApplicationRegistration_DoesNotCreatePendingRegistrationWhenEnvironmentVariableIsMissing()
+    {
+        bool called = false;
+        var handler = new StubHandler((_, _) =>
+        {
+            called = true;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        });
+        var client = new ApplicationRegistrationClient(
+            new HttpClient(handler),
+            new ApplicationRegistrationOptions(
+                new Uri("http://operations/"),
+                "Aegis.Cafeteria.Services",
+                "kratos"),
+            _ => null);
+
+        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
+
+        Assert.Equal(ApplicationRegistrationState.MissingCredential, result.State);
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task ApplicationRegistration_RevokedCredentialRequiresBootstrapToBeRepeated()
+    {
+        var client = new ApplicationRegistrationClient(
+            new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Gone)))),
+            new ApplicationRegistrationOptions(
+                new Uri("http://operations/"),
+                "Aegis.Cafeteria.Services",
+                "kratos"),
+            _ => "revoked-key");
+
+        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
+
+        Assert.Equal(ApplicationRegistrationState.Revoked, result.State);
+        Assert.Contains("new pending registration", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task NonSuccessHttpResponse_IsNeverReportedAsSuccess()
     {

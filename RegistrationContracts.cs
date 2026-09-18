@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
@@ -69,8 +70,6 @@ public static class RegistrationCredentialResolver
             }
             catch (Exception exception)
             {
-                // Secret-provider failure is deliberately non-fatal for bootstrap registration.
-                // Registration must still be able to fall back to the app setting and report truthfully.
                 secretProviderError = $"{exception.GetType().Name}: {exception.Message}";
             }
         }
@@ -84,6 +83,116 @@ public static class RegistrationCredentialResolver
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+public enum ApplicationRegistrationState
+{
+    MissingCredential = 0,
+    Registered = 1,
+    Revoked = 2,
+    InvalidCredential = 3,
+    Unavailable = 4
+}
+
+public sealed record ApplicationRegistrationStatus(
+    ApplicationRegistrationState State,
+    DateTimeOffset AttemptedAtUtc,
+    string? Error = null,
+    HttpStatusCode? StatusCode = null)
+{
+    public bool IsRegistered => State == ApplicationRegistrationState.Registered;
+}
+
+public sealed record ApplicationRegistrationOptions(
+    Uri OperationsBaseUri,
+    string ApplicationId,
+    string InstanceId,
+    string RegistrationEnvironmentVariable = RegistrationCredentialResolver.EnvironmentVariableName,
+    TimeSpan? RequestTimeout = null);
+
+/// <summary>
+/// Application-side registration client. It never creates pending registrations,
+/// retrieves PINs, or persists registration keys. Bootstrap is an Operations task.
+/// The application only reads the designated environment variable and attempts registration.
+/// </summary>
+public sealed class ApplicationRegistrationClient
+{
+    private readonly HttpClient _http;
+    private readonly ApplicationRegistrationOptions _options;
+    private readonly Func<string, string?> _environmentValue;
+
+    public ApplicationRegistrationClient(
+        HttpClient http,
+        ApplicationRegistrationOptions options,
+        Func<string, string?>? environmentValue = null)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (string.IsNullOrWhiteSpace(options.ApplicationId))
+            throw new ArgumentException("Application id is required.", nameof(options));
+        if (string.IsNullOrWhiteSpace(options.InstanceId))
+            throw new ArgumentException("Instance id is required.", nameof(options));
+        if (string.IsNullOrWhiteSpace(options.RegistrationEnvironmentVariable))
+            throw new ArgumentException("Registration environment variable is required.", nameof(options));
+
+        _http = http;
+        _options = options;
+        _environmentValue = environmentValue ?? Environment.GetEnvironmentVariable;
+        _http.BaseAddress = options.OperationsBaseUri;
+        _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(10);
+    }
+
+    public async Task<ApplicationRegistrationStatus> RegisterAsync(
+        JsonObject contract,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+
+        string? credential = _environmentValue(_options.RegistrationEnvironmentVariable)?.Trim();
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            return new(
+                ApplicationRegistrationState.MissingCredential,
+                DateTimeOffset.UtcNow,
+                $"Registration key is missing from environment variable {_options.RegistrationEnvironmentVariable}.");
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/registration/contracts")
+            {
+                Content = JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract))
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+            request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", _options.ApplicationId);
+            request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", _options.InstanceId);
+
+            using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+                return new(ApplicationRegistrationState.Registered, DateTimeOffset.UtcNow, StatusCode: response.StatusCode);
+
+            if (response.StatusCode == HttpStatusCode.Gone)
+                return new(ApplicationRegistrationState.Revoked, DateTimeOffset.UtcNow, "Registration has been revoked. Create a new pending registration in Operations and replace the environment variable.", response.StatusCode);
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                return new(ApplicationRegistrationState.InvalidCredential, DateTimeOffset.UtcNow, "Registration key is invalid. Create a new pending registration in Operations and replace the environment variable.", response.StatusCode);
+
+            return new(
+                ApplicationRegistrationState.Unavailable,
+                DateTimeOffset.UtcNow,
+                $"Operations rejected registration with HTTP {(int)response.StatusCode}.",
+                response.StatusCode);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new(ApplicationRegistrationState.Unavailable, DateTimeOffset.UtcNow, "Operations registration request timed out.");
+        }
+        catch (HttpRequestException ex)
+        {
+            return new(ApplicationRegistrationState.Unavailable, DateTimeOffset.UtcNow, $"Operations registration is unavailable: {ex.Message}");
+        }
+    }
 }
 
 public interface IConfigurationContractRegistrar
