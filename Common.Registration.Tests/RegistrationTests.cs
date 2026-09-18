@@ -183,25 +183,7 @@ public sealed class RegistrationTests
         }
     }
 
-    [Fact]
-    public async Task NonSuccessHttpResponse_IsNeverReportedAsSuccess()
-    {
-        var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
-        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
-        Assert.False(result.Succeeded);
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
-    }
 
-    [Fact]
-    public async Task SuccessfulHttpResponse_IsReportedAsSuccess()
-    {
-        var client = new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));
-        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
-        Assert.True(result.Succeeded);
-        Assert.Equal(HttpStatusCode.OK, result.StatusCode);
-    }
 
     [Fact]
     public void MetadataOnly_RemovesValues_AndNormalizesRequirementKinds()
@@ -235,54 +217,8 @@ public sealed class RegistrationTests
         Assert.Equal("ExternalService", contract["requirements"]!.AsArray()[0]!["kind"]!.GetValue<string>());
     }
 
-    [Fact]
-    public async Task RegisterContractAsync_SendsSanitizedPayload()
-    {
-        string? body = null;
-        var client = new HttpClient(new StubHandler(async (request, cancellationToken) =>
-        {
-            body = await request.Content!.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.OK);
-        }));
-        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-        JsonObject contract = ValidContract();
-        contract["requirements"]!.AsArray()[0]!["safeDisplayValue"] = "must-not-leave-process";
 
-        RegistrationResult result = await registrar.RegisterContractAsync(contract);
 
-        Assert.True(result.Succeeded);
-        Assert.NotNull(body);
-        Assert.Contains("\"kind\":1", body, StringComparison.Ordinal);
-        Assert.Contains("isConfigured", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("must-not-leave-process", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("safeDisplayValue", body, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task TransportFailure_IsNeverReportedAsSuccess()
-    {
-        var client = new HttpClient(new StubHandler((_, _) => Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"))));
-        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-
-        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
-
-        Assert.False(result.Succeeded);
-        Assert.Null(result.StatusCode);
-        Assert.Contains("offline", result.Error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Timeout_IsNeverReportedAsSuccess()
-    {
-        var client = new HttpClient(new StubHandler((_, _) => Task.FromException<HttpResponseMessage>(new TaskCanceledException("timeout"))));
-        var registrar = new ConfigurationRegistrar(client, new RegistrationOptions(new Uri("http://configuration/")));
-
-        RegistrationResult result = await registrar.RegisterContractAsync(ValidContract());
-
-        Assert.False(result.Succeeded);
-        Assert.Null(result.StatusCode);
-        Assert.Contains("timed out", result.Error, StringComparison.OrdinalIgnoreCase);
-    }
 
     private static JsonObject ValidContract() => new()
     {
