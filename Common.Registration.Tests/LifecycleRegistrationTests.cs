@@ -64,10 +64,24 @@ public sealed class LifecycleRegistrationTests
             RegistrationLifecycleStatus status = await client.StepAsync();
 
             Assert.Equal(RegistrationLifecycleState.Pending, status.State);
-            string persisted = await File.ReadAllTextAsync(path);
-            Assert.Contains("reg-1", persisted);
-            Assert.Contains("claim-secret", persisted);
-            Assert.DoesNotContain("AEGIS_REGISTRATION_KEY", persisted);
+            RegistrationIdentityDocument persisted =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            Assert.Equal("reg-1", persisted.RegistrationId);
+            Assert.Equal("claim-secret", persisted.ClaimToken);
+
+            byte[] raw = await File.ReadAllBytesAsync(path);
+            string rawText = Encoding.UTF8.GetString(raw);
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.DoesNotContain("claim-secret", rawText);
+                Assert.DoesNotContain("reg-1", rawText);
+            }
+            else
+            {
+                Assert.Contains("reg-1", rawText);
+                Assert.Contains("claim-secret", rawText);
+            }
+            Assert.DoesNotContain("AEGIS_REGISTRATION_KEY", rawText);
         }
         finally
         {
@@ -132,9 +146,18 @@ public sealed class LifecycleRegistrationTests
             Assert.Equal(RegistrationLifecycleState.Registered, claimed.State);
             Assert.Equal(RegistrationLifecycleState.Registered, authenticated.State);
 
-            string persisted = await File.ReadAllTextAsync(path);
-            Assert.DoesNotContain("claim-secret", persisted);
-            Assert.Contains("permanent-secret", persisted);
+            RegistrationIdentityDocument persisted =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            Assert.Null(persisted.ClaimToken);
+            Assert.Equal("permanent-secret", persisted.Credential);
+
+            byte[] raw = await File.ReadAllBytesAsync(path);
+            string rawText = Encoding.UTF8.GetString(raw);
+            Assert.DoesNotContain("claim-secret", rawText);
+            if (OperatingSystem.IsWindows())
+                Assert.DoesNotContain("permanent-secret", rawText);
+            else
+                Assert.Contains("permanent-secret", rawText);
         }
         finally
         {
