@@ -216,11 +216,8 @@ public sealed class RegistrationLifecycleClient
 
         if (!options.ConfigurationBaseUri.IsAbsoluteUri)
             throw new ArgumentException("Configuration base URI must be absolute.", nameof(options));
-        if (options.ConfigurationBaseUri.Scheme != Uri.UriSchemeHttps &&
-            !IPAddress.IsLoopback(options.ConfigurationBaseUri.IsLoopback ? IPAddress.Loopback : IPAddress.None))
-        {
-            // Local HTTP remains usable for development and loopback service composition.
-        }
+        if (options.ConfigurationBaseUri.Scheme != Uri.UriSchemeHttps && !options.ConfigurationBaseUri.IsLoopback)
+            throw new ArgumentException("Registration requires HTTPS except for loopback development endpoints.", nameof(options));
 
         _http = http;
         _options = options;
