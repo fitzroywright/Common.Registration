@@ -62,7 +62,7 @@ public sealed class RegistrationTests
     public void CredentialResolver_UsesStandardSecretName()
     {
         Assert.Equal(
-            "configuration/registration/Aegis.Cafeteria.Services",
+            "registration/Aegis.Cafeteria.Services",
             RegistrationCredentialResolver.SecretNameFor("Aegis.Cafeteria.Services"));
     }
 
@@ -91,7 +91,7 @@ public sealed class RegistrationTests
     }
 
     [Fact]
-    public async Task ApplicationRegistration_DoesNotCreatePendingRegistrationWhenEnvironmentVariableIsMissing()
+    public async Task ApplicationRegistration_DoesNotAutoProvisionNormalApplicationWhenCredentialIsMissing()
     {
         bool called = false;
         var handler = new StubHandler((_, _) =>
