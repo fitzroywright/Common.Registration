@@ -109,7 +109,9 @@ public sealed record ApplicationRegistrationOptions(
     string ApplicationId,
     string InstanceId,
     string RegistrationEnvironmentVariable = RegistrationCredentialResolver.EnvironmentVariableName,
-    TimeSpan? RequestTimeout = null);
+    TimeSpan? RequestTimeout = null,
+    bool AutoProvisionControlPlane = false,
+    string? CredentialFilePath = null);
 
 /// <summary>
 /// Application-side registration client. It never creates pending registrations,
@@ -147,6 +149,46 @@ public sealed class ApplicationRegistrationClient
         _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(10);
     }
 
+    private async Task<string?> AutoProvisionControlPlaneAsync(CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _http.PostAsJsonAsync(
+            "api/registration/control-plane/auto",
+            new
+            {
+                applicationId = _options.ApplicationId,
+                displayName = _options.ApplicationId,
+                instanceId = _options.InstanceId
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "Control-plane auto-provisioning was rejected by Operations with HTTP {StatusCode}.",
+                (int)response.StatusCode);
+            return null;
+        }
+
+        ControlPlaneCredentialResponse? result =
+            await response.Content.ReadFromJsonAsync<ControlPlaneCredentialResponse>(cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(result?.Credential))
+            return null;
+
+        string credential = result.Credential.Trim();
+        if (!string.IsNullOrWhiteSpace(_options.CredentialFilePath))
+        {
+            string fullPath = Path.GetFullPath(_options.CredentialFilePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            await File.WriteAllTextAsync(fullPath, credential + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(fullPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        return credential;
+    }
+
+    private sealed record ControlPlaneCredentialResponse(string Credential);
+
     public async Task<ApplicationRegistrationStatus> RegisterAsync(
         JsonObject contract,
         CancellationToken cancellationToken = default)
@@ -169,6 +211,15 @@ public sealed class ApplicationRegistrationClient
         Step(LogLevel.Information, "Started", "Registration attempt started for instance {InstanceId}.", _options.InstanceId);
         Step(LogLevel.Information, "RegistrationKeyLookup", "Looking for registration key in environment variable {RegistrationEnvironmentVariable}.", _options.RegistrationEnvironmentVariable);
         string? credential = _environmentValue(_options.RegistrationEnvironmentVariable)?.Trim();
+        if (string.IsNullOrWhiteSpace(credential) && !string.IsNullOrWhiteSpace(_options.CredentialFilePath) && File.Exists(_options.CredentialFilePath))
+            credential = (await File.ReadAllTextAsync(_options.CredentialFilePath, cancellationToken).ConfigureAwait(false)).Trim();
+
+        if (string.IsNullOrWhiteSpace(credential) && _options.AutoProvisionControlPlane)
+        {
+            Step(LogLevel.Information, "ControlPlaneAutoProvision", "No registration key exists; requesting local control-plane auto-provisioning.");
+            credential = await AutoProvisionControlPlaneAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         if (string.IsNullOrWhiteSpace(credential))
         {
             Step(LogLevel.Warning, "RegistrationKeyMissing", "Registration key was not found.");
@@ -176,7 +227,7 @@ public sealed class ApplicationRegistrationClient
             return new(
                 ApplicationRegistrationState.MissingCredential,
                 DateTimeOffset.UtcNow,
-                $"Registration key is missing from environment variable {_options.RegistrationEnvironmentVariable}.");
+                $"Registration key is missing from environment variable {_options.RegistrationEnvironmentVariable} and no control-plane credential could be provisioned.");
         }
 
         Step(LogLevel.Information, "RegistrationKeyFound", "Registration key was found.");
