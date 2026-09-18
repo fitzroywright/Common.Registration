@@ -290,6 +290,50 @@ public sealed class RegistrationLifecycleClient
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<HttpStatusCode> PublishConfigurationContractAsync(
+        JsonObject contract,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+
+        RegistrationIdentityDocument document =
+            await _identityStore.LoadOrCreateAsync(
+                _options.ApplicationId,
+                _options.InstanceId,
+                cancellationToken).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(document.Credential))
+            return HttpStatusCode.Unauthorized;
+
+        string correlationId = Guid.NewGuid().ToString("N");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/contracts/register")
+        {
+            Content = JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract))
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", document.Credential);
+        request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", document.ApplicationId);
+        request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", document.InstanceId);
+        request.Headers.TryAddWithoutValidation("X-Aegis-Installation-Id", document.InstallationId);
+        request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
+
+        using HttpResponseMessage response =
+            await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            _logger.LogInformation(
+                "Configuration contract published through authenticated durable identity.");
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Configuration contract publication failed with HTTP {StatusCode}.",
+                (int)response.StatusCode);
+        }
+
+        return response.StatusCode;
+    }
+
     private async Task<RegistrationLifecycleStatus> RequestRegistrationAsync(
         RegistrationIdentityDocument document,
         RegistrationIdentity identity,
