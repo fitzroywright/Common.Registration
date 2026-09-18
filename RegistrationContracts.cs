@@ -190,6 +190,7 @@ public sealed class ApplicationRegistrationClient
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
             request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", _options.ApplicationId);
             request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", _options.InstanceId);
+            request.Headers.TryAddWithoutValidation("X-Aegis-Registration-Attempt-Id", attemptId);
 
             Step(LogLevel.Information, "RequestSending", "Sending registration contract request to Operations.");
             using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
