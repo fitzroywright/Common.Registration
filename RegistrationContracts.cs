@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 
 namespace Common.Registration;
 
@@ -120,11 +121,13 @@ public sealed class ApplicationRegistrationClient
     private readonly HttpClient _http;
     private readonly ApplicationRegistrationOptions _options;
     private readonly Func<string, string?> _environmentValue;
+    private readonly ILogger _logger;
 
     public ApplicationRegistrationClient(
         HttpClient http,
         ApplicationRegistrationOptions options,
-        Func<string, string?>? environmentValue = null)
+        Func<string, string?>? environmentValue = null,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
@@ -139,6 +142,7 @@ public sealed class ApplicationRegistrationClient
         _http = http;
         _options = options;
         _environmentValue = environmentValue ?? Environment.GetEnvironmentVariable;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _http.BaseAddress = options.OperationsBaseUri;
         _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(10);
     }
@@ -149,17 +153,36 @@ public sealed class ApplicationRegistrationClient
     {
         ArgumentNullException.ThrowIfNull(contract);
 
+        string attemptId = Guid.NewGuid().ToString("N");
+        using IDisposable? scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["Activity"] = "Registration",
+            ["Application"] = _options.ApplicationId,
+            ["RegistrationAttemptId"] = attemptId
+        });
+        void Step(LogLevel level, string stage, string message, params object?[] args)
+        {
+            using IDisposable? stageScope = _logger.BeginScope(new Dictionary<string, object?> { ["Stage"] = stage });
+            _logger.Log(level, message, args);
+        }
+
+        Step(LogLevel.Information, "Started", "Registration attempt started for instance {InstanceId}.", _options.InstanceId);
+        Step(LogLevel.Information, "RegistrationKeyLookup", "Looking for registration key in environment variable {RegistrationEnvironmentVariable}.", _options.RegistrationEnvironmentVariable);
         string? credential = _environmentValue(_options.RegistrationEnvironmentVariable)?.Trim();
         if (string.IsNullOrWhiteSpace(credential))
         {
+            Step(LogLevel.Warning, "RegistrationKeyMissing", "Registration key was not found.");
+            Step(LogLevel.Warning, "Failed", "Registration attempt failed because the registration key is missing.");
             return new(
                 ApplicationRegistrationState.MissingCredential,
                 DateTimeOffset.UtcNow,
                 $"Registration key is missing from environment variable {_options.RegistrationEnvironmentVariable}.");
         }
 
+        Step(LogLevel.Information, "RegistrationKeyFound", "Registration key was found.");
         try
         {
+            Step(LogLevel.Information, "RequestPreparing", "Preparing registration contract request to Operations.");
             using var request = new HttpRequestMessage(HttpMethod.Post, "api/registration/contracts")
             {
                 Content = JsonContent.Create(ConfigurationContractPolicy.MetadataOnly(contract))
@@ -168,28 +191,44 @@ public sealed class ApplicationRegistrationClient
             request.Headers.TryAddWithoutValidation("X-Aegis-Application-Id", _options.ApplicationId);
             request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", _options.InstanceId);
 
+            Step(LogLevel.Information, "RequestSending", "Sending registration contract request to Operations.");
             using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            Step(LogLevel.Information, "ResponseReceived", "Operations returned HTTP {StatusCode}.", (int)response.StatusCode);
             if (response.IsSuccessStatusCode)
+            {
+                Step(LogLevel.Information, "Succeeded", "Registration succeeded and the configuration contract was accepted.");
                 return new(ApplicationRegistrationState.Registered, DateTimeOffset.UtcNow, StatusCode: response.StatusCode);
+            }
 
             if (response.StatusCode == HttpStatusCode.Gone)
+            {
+                Step(LogLevel.Warning, "Revoked", "Registration failed because the registration was revoked.");
                 return new(ApplicationRegistrationState.Revoked, DateTimeOffset.UtcNow, "Registration has been revoked. Create a new pending registration in Operations and replace the environment variable.", response.StatusCode);
+            }
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                Step(LogLevel.Warning, "InvalidCredential", "Registration failed because Operations rejected the registration key.");
                 return new(ApplicationRegistrationState.InvalidCredential, DateTimeOffset.UtcNow, "Registration key is invalid. Create a new pending registration in Operations and replace the environment variable.", response.StatusCode);
+            }
 
+            Step(LogLevel.Warning, "Rejected", "Registration failed because Operations rejected the request with HTTP {StatusCode}.", (int)response.StatusCode);
             return new(
                 ApplicationRegistrationState.Unavailable,
                 DateTimeOffset.UtcNow,
                 $"Operations rejected registration with HTTP {(int)response.StatusCode}.",
                 response.StatusCode);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
+            using IDisposable? stageScope = _logger.BeginScope(new Dictionary<string, object?> { ["Stage"] = "TimedOut" });
+            _logger.LogWarning(ex, "Registration request timed out.");
             return new(ApplicationRegistrationState.Unavailable, DateTimeOffset.UtcNow, "Operations registration request timed out.");
         }
         catch (HttpRequestException ex)
         {
+            using IDisposable? stageScope = _logger.BeginScope(new Dictionary<string, object?> { ["Stage"] = "RequestFailed" });
+            _logger.LogWarning(ex, "Registration request to Operations failed.");
             return new(ApplicationRegistrationState.Unavailable, DateTimeOffset.UtcNow, $"Operations registration is unavailable: {ex.Message}");
         }
     }
