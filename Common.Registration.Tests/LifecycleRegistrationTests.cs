@@ -274,6 +274,36 @@ public sealed class LifecycleRegistrationTests
     }
 
     [Fact]
+    public void RegistrationClient_RejectsNonTlsNonLoopbackConfigurationEndpoint()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"), "identity.json");
+        var handler = new RecordingHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK));
+
+        Assert.Throws<ArgumentException>(() => new RegistrationLifecycleClient(
+            new HttpClient(handler),
+            new RegistrationLifecycleOptions(
+                new Uri("http://configuration.example/"),
+                "Aegis.Hello",
+                "Production",
+                path)));
+    }
+
+    [Fact]
+    public void RegistrationClient_AllowsLoopbackHttpForLocalDevelopment()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"), "identity.json");
+        var handler = new RecordingHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK));
+
+        _ = new RegistrationLifecycleClient(
+            new HttpClient(handler),
+            new RegistrationLifecycleOptions(
+                new Uri("http://127.0.0.1:5200/"),
+                "Aegis.Hello",
+                "Production",
+                path));
+    }
+
+    [Fact]
     public async Task RegisteredIdentity_PublishesConfigurationContractDirectlyToConfiguration()
     {
         string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
