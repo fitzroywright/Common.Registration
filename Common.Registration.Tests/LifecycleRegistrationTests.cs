@@ -143,6 +143,55 @@ public sealed class LifecycleRegistrationTests
         }
     }
 
+
+    [Fact]
+    public async Task MissingCredential_WithEstablishedRegistration_RequestsRecoveryNotNewRegistration()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-established",
+                Credential = null,
+                ClaimToken = null
+            });
+
+            var handler = new RecordingHandler((request, _) =>
+            {
+                Assert.Equal("/api/registration/recovery", request.RequestUri!.AbsolutePath);
+                return Json(HttpStatusCode.OK, new
+                {
+                    registrationId = "reg-established",
+                    claimToken = "recovery-claim",
+                    state = "RecoveryPending"
+                });
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+
+            Assert.Equal(RegistrationLifecycleState.RecoveryPending, status.State);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
     [Fact]
     public async Task InvalidCredential_RequestsRecoveryInsteadOfCreatingDuplicateRegistration()
     {
