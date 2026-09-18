@@ -432,6 +432,71 @@ public sealed class LifecycleRegistrationTests
     }
 
 
+
+    [Fact]
+    public async Task ExpiredClaim_TransitionsToRecoveryPending_InsteadOfLooping()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var store = new FileRegistrationIdentityStore(path);
+            RegistrationIdentityDocument identity =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            await store.SaveAsync(identity with
+            {
+                RegistrationId = "reg-expired-claim",
+                ClaimToken = "expired-claim"
+            });
+
+            int calls = 0;
+            var handler = new RecordingHandler((request, _) =>
+            {
+                calls++;
+                return request.RequestUri!.AbsolutePath switch
+                {
+                    "/api/registration/reg-expired-claim/claim" =>
+                        Json(HttpStatusCode.Unauthorized, new { error = "claim expired" }),
+
+                    "/api/registration/recovery" =>
+                        Json(HttpStatusCode.OK, new
+                        {
+                            registrationId = "reg-expired-claim",
+                            claimToken = "recovery-claim",
+                            state = "RecoveryPending"
+                        }),
+
+                    _ => throw new Xunit.Sdk.XunitException("Unexpected request: " + request.RequestUri)
+                };
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path),
+                store);
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+
+            Assert.Equal(RegistrationLifecycleState.RecoveryPending, status.State);
+            Assert.Equal(2, calls);
+
+            RegistrationIdentityDocument persisted =
+                await store.LoadOrCreateAsync("Aegis.Hello", "Production");
+            Assert.Equal("recovery-claim", persisted.ClaimToken);
+            Assert.Null(persisted.Credential);
+            Assert.Equal("reg-expired-claim", persisted.RegistrationId);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
     [Fact]
     public async Task PurgedServerRecord_ClearsStaleCredential_AndCreatesFreshPending()
     {
