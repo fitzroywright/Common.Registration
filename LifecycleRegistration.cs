@@ -265,8 +265,21 @@ public sealed class RegistrationLifecycleClient
                 claimed.StatusCode != HttpStatusCode.NotFound)
                 return claimed;
 
+            // A missing server-side registration means the authoritative record was purged.
+            // Only then is a fresh introduction appropriate.
             document = document with { RegistrationId = null, ClaimToken = null };
             await _identityStore.SaveAsync(document, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!string.IsNullOrWhiteSpace(document.RegistrationId))
+        {
+            // The installation has an established identity but no usable credential.
+            // This is recovery, never a second normal registration.
+            return await RequestRecoveryAsync(
+                document,
+                identity,
+                correlationId,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return await RequestRegistrationAsync(
