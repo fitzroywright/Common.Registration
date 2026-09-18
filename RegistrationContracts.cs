@@ -197,6 +197,26 @@ public sealed class ApplicationRegistrationClient
             Step(LogLevel.Information, "ResponseReceived", "Operations returned HTTP {StatusCode}.", (int)response.StatusCode);
             if (response.IsSuccessStatusCode)
             {
+                Uri? finalUri = response.RequestMessage?.RequestUri;
+                bool redirectedToLogin = finalUri is not null &&
+                    finalUri.AbsolutePath.StartsWith("/login", StringComparison.OrdinalIgnoreCase);
+                bool htmlResponse = response.Content.Headers.ContentType?.MediaType?.Equals(
+                    "text/html",
+                    StringComparison.OrdinalIgnoreCase) == true;
+
+                if (redirectedToLogin || htmlResponse)
+                {
+                    Step(
+                        LogLevel.Warning,
+                        "InteractiveLoginRedirect",
+                        "Registration did not complete because the Operations API redirected to an interactive login endpoint.");
+                    return new(
+                        ApplicationRegistrationState.Unavailable,
+                        DateTimeOffset.UtcNow,
+                        "Operations redirected the registration API request to interactive login instead of processing the registration.",
+                        response.StatusCode);
+                }
+
                 Step(LogLevel.Information, "Succeeded", "Registration succeeded and the configuration contract was accepted.");
                 return new(ApplicationRegistrationState.Registered, DateTimeOffset.UtcNow, StatusCode: response.StatusCode);
             }
