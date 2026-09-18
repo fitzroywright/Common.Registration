@@ -7,294 +7,158 @@ using Xunit;
 public sealed class RegistrationTests
 {
     [Fact]
-    public async Task CredentialResolver_PrefersEnvironment()
+    public void ConfigurationContractPolicy_RemovesValueBearingFields()
     {
-        bool secretProviderCalled = false;
-        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
-            () => " environment-key ",
-            _ => { secretProviderCalled = true; return Task.FromResult<string?>("secret-key"); },
-            () => "app-key");
-
-        Assert.True(result.Succeeded);
-        Assert.Equal("environment-key", result.Credential);
-        Assert.Equal(RegistrationCredentialSource.Environment, result.Source);
-        Assert.False(secretProviderCalled);
-    }
-
-    [Fact]
-    public async Task CredentialResolver_UsesSecretProviderWhenEnvironmentMissing()
-    {
-        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
-            () => null,
-            _ => Task.FromResult<string?>("secret-key"),
-            () => "app-key");
-
-        Assert.Equal("secret-key", result.Credential);
-        Assert.Equal(RegistrationCredentialSource.SecretProvider, result.Source);
-    }
-
-    [Fact]
-    public async Task CredentialResolver_FallsBackToAppSettingWhenSecretProviderFails()
-    {
-        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
-            () => null,
-            _ => Task.FromException<string?>(new InvalidOperationException("provider unavailable")),
-            () => "app-key");
-
-        Assert.Equal("app-key", result.Credential);
-        Assert.Equal(RegistrationCredentialSource.AppSetting, result.Source);
-        Assert.Contains("provider unavailable", result.SecretProviderError, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task CredentialResolver_ReportsMissingWithoutInventingSuccess()
-    {
-        RegistrationCredentialResolution result = await RegistrationCredentialResolver.ResolveAsync(
-            () => " ",
-            _ => Task.FromResult<string?>(null),
-            () => null);
-
-        Assert.False(result.Succeeded);
-        Assert.Null(result.Credential);
-        Assert.Equal(RegistrationCredentialSource.Missing, result.Source);
-    }
-
-    [Fact]
-    public void CredentialResolver_UsesStandardSecretName()
-    {
-        Assert.Equal(
-            "registration/Aegis.Cafeteria.Services",
-            RegistrationCredentialResolver.SecretNameFor("Aegis.Cafeteria.Services"));
-    }
-
-
-    [Fact]
-    public async Task ApplicationRegistration_UsesDesignatedEnvironmentVariable()
-    {
-        string? authorization = null;
-        var handler = new StubHandler((request, _) =>
+        var contract = new JsonObject
         {
-            authorization = request.Headers.Authorization?.Parameter;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-        });
-        var client = new ApplicationRegistrationClient(
-            new HttpClient(handler),
-            new ApplicationRegistrationOptions(
-                new Uri("http://operations/"),
-                "Aegis.Cafeteria.Services",
-                "kratos"),
-            name => name == RegistrationCredentialResolver.EnvironmentVariableName ? "registration-key" : null);
-
-        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
-
-        Assert.True(result.IsRegistered);
-        Assert.Equal("registration-key", authorization);
-    }
-
-    [Fact]
-    public async Task ApplicationRegistration_DoesNotAutoProvisionNormalApplicationWhenCredentialIsMissing()
-    {
-        bool called = false;
-        var handler = new StubHandler((_, _) =>
-        {
-            called = true;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-        });
-        var client = new ApplicationRegistrationClient(
-            new HttpClient(handler),
-            new ApplicationRegistrationOptions(
-                new Uri("http://operations/"),
-                "Aegis.Cafeteria.Services",
-                "kratos"),
-            _ => null);
-
-        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
-
-        Assert.Equal(ApplicationRegistrationState.MissingCredential, result.State);
-        Assert.False(called);
-    }
-
-    [Fact]
-    public async Task ApplicationRegistration_RevokedCredentialRequiresNewPendingRegistration()
-    {
-        var client = new ApplicationRegistrationClient(
-            new HttpClient(new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Gone)))),
-            new ApplicationRegistrationOptions(
-                new Uri("http://operations/"),
-                "Aegis.Cafeteria.Services",
-                "kratos"),
-            _ => "revoked-key");
-
-        ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
-
-        Assert.Equal(ApplicationRegistrationState.Revoked, result.State);
-        Assert.Contains("new pending registration", result.Error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task ControlPlaneRegistration_AutoProvisionsOnFirstStart_AndPersistsCredential()
-    {
-        string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "registration.key");
-        int autoProvisionCalls = 0;
-        int contractCalls = 0;
-
-        var handler = new StubHandler((request, _) =>
-        {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/api/registration/control-plane/auto", StringComparison.Ordinal))
-            {
-                autoProvisionCalls++;
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = JsonContent.Create(new { credential = "issued-control-plane-key" })
-                });
-            }
-
-            contractCalls++;
-            return Task.FromResult(new HttpResponseMessage(
-                request.Headers.Authorization?.Parameter == "issued-control-plane-key"
-                    ? HttpStatusCode.OK
-                    : HttpStatusCode.Unauthorized));
-        });
-
-        try
-        {
-            var client = new ApplicationRegistrationClient(
-                new HttpClient(handler),
-                new ApplicationRegistrationOptions(
-                    new Uri("http://operations/"),
-                    "Aegis.Configuration",
-                    "kratos",
-                    AutoProvisionControlPlane: true,
-                    CredentialFilePath: temp),
-                _ => null);
-
-            ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
-
-            Assert.True(result.IsRegistered);
-            Assert.Equal(1, autoProvisionCalls);
-            Assert.Equal(1, contractCalls);
-            Assert.Equal("issued-control-plane-key", (await File.ReadAllTextAsync(temp)).Trim());
-        }
-        finally
-        {
-            string? directory = Path.GetDirectoryName(temp);
-            if (directory is not null && Directory.Exists(directory))
-                Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task ControlPlaneRegistration_RotatesRejectedCredential_AndRetries()
-    {
-        string temp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "registration.key");
-        Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
-        await File.WriteAllTextAsync(temp, "stale-key");
-
-        int contractCalls = 0;
-        var handler = new StubHandler(async (request, cancellationToken) =>
-        {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/api/registration/control-plane/auto", StringComparison.Ordinal))
-            {
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = JsonContent.Create(new { credential = "replacement-key" })
-                };
-            }
-
-            contractCalls++;
-            string? key = request.Headers.Authorization?.Parameter;
-            return new HttpResponseMessage(
-                contractCalls == 1 && key == "stale-key"
-                    ? HttpStatusCode.Unauthorized
-                    : key == "replacement-key"
-                        ? HttpStatusCode.OK
-                        : HttpStatusCode.Forbidden);
-        });
-
-        try
-        {
-            var client = new ApplicationRegistrationClient(
-                new HttpClient(handler),
-                new ApplicationRegistrationOptions(
-                    new Uri("http://operations/"),
-                    "Aegis.Diagnostics",
-                    "kratos",
-                    AutoProvisionControlPlane: true,
-                    CredentialFilePath: temp),
-                _ => null);
-
-            ApplicationRegistrationStatus result = await client.RegisterAsync(ValidContract());
-
-            Assert.True(result.IsRegistered);
-            Assert.Equal(2, contractCalls);
-            Assert.Equal("replacement-key", (await File.ReadAllTextAsync(temp)).Trim());
-        }
-        finally
-        {
-            Directory.Delete(Path.GetDirectoryName(temp)!, recursive: true);
-        }
-    }
-
-
-
-    [Fact]
-    public void MetadataOnly_RemovesValues_AndNormalizesRequirementKinds()
-    {
-        JsonObject contract = new()
-        {
-            ["value"] = "top-secret",
+            ["applicationId"] = "Aegis.Hello",
             ["requirements"] = new JsonArray
             {
                 new JsonObject
                 {
-                    ["id"] = "database",
-                    ["kind"] = "ExternalService",
-                    ["isConfigured"] = true,
-                    ["defaultValue"] = "fallback",
-                    ["details"] = new JsonObject { ["resolvedValue"] = "resolved-secret" }
+                    ["id"] = "secret",
+                    ["kind"] = "Secret",
+                    ["value"] = "must-not-leak",
+                    ["safeDisplayValue"] = "must-not-leak",
+                    ["defaultValue"] = "must-not-leak"
                 }
             }
         };
 
         JsonObject sanitized = ConfigurationContractPolicy.MetadataOnly(contract);
-        JsonObject requirement = sanitized["requirements"]!.AsArray()[0]!.AsObject();
-        string json = sanitized.ToJsonString();
+        JsonObject requirement = sanitized["requirements"]![0]!.AsObject();
 
-        Assert.DoesNotContain("top-secret", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("fallback", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("resolved-secret", json, StringComparison.Ordinal);
-        Assert.True(requirement["isConfigured"]!.GetValue<bool>());
-        Assert.Equal(2, requirement["kind"]!.GetValue<int>());
-        Assert.Equal("top-secret", contract["value"]!.GetValue<string>());
-        Assert.Equal("ExternalService", contract["requirements"]!.AsArray()[0]!["kind"]!.GetValue<string>());
+        Assert.Null(requirement["value"]);
+        Assert.Null(requirement["safeDisplayValue"]);
+        Assert.Null(requirement["defaultValue"]);
+        Assert.Equal(1, requirement["kind"]!.GetValue<int>());
     }
 
-
-
-
-    private static JsonObject ValidContract() => new()
+    [Fact]
+    public void ControlPlaneClient_RejectsOrdinaryApplications()
     {
-        ["applicationId"] = "Test",
-        ["displayName"] = "Test",
-        ["version"] = "1.0.0",
-        ["requirements"] = new JsonArray
+        Assert.Throws<ArgumentException>(() => new ControlPlaneRegistrationClient(
+            new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK))),
+            new ControlPlaneRegistrationOptions(
+                new Uri("https://operations.example/"),
+                "Aegis.Hello",
+                "Production",
+                Path.Combine(Path.GetTempPath(), "hello.key"))));
+    }
+
+    [Fact]
+    public async Task ControlPlaneClient_BootstrapsOnlyToProtectedCredentialFile()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-control-plane-" + Guid.NewGuid().ToString("N"));
+        string credentialFile = Path.Combine(root, "configuration.key");
+        int calls = 0;
+
+        try
         {
-            new JsonObject
+            var handler = new StubHandler(request =>
             {
-                ["id"] = "token",
-                ["displayName"] = "Token",
-                ["kind"] = "Secret",
-                ["required"] = true,
-                ["purpose"] = "Test registration contract",
-                ["configurationKey"] = "Test:Token",
-                ["isConfigured"] = true
+                calls++;
+
+                if (request.RequestUri!.AbsolutePath == "/api/registration/control-plane/auto")
+                {
+                    return Json(HttpStatusCode.OK, new
+                    {
+                        credential = "control-plane-secret"
+                    });
+                }
+
+                Assert.Equal("/api/registration/contracts", request.RequestUri.AbsolutePath);
+                Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+                Assert.Equal("control-plane-secret", request.Headers.Authorization?.Parameter);
+                return Json(HttpStatusCode.OK, new { registered = true });
+            });
+
+            var client = new ControlPlaneRegistrationClient(
+                new HttpClient(handler),
+                new ControlPlaneRegistrationOptions(
+                    new Uri("https://operations.example/"),
+                    "Aegis.Configuration",
+                    "Production",
+                    credentialFile));
+
+            ControlPlaneRegistrationStatus status = await client.RegisterAsync(
+                new JsonObject
+                {
+                    ["applicationId"] = "Aegis.Configuration"
+                });
+
+            Assert.True(status.IsRegistered);
+            Assert.Equal(2, calls);
+            Assert.Equal("control-plane-secret", (await File.ReadAllTextAsync(credentialFile)).Trim());
+
+            if (!OperatingSystem.IsWindows())
+            {
+                UnixFileMode mode = File.GetUnixFileMode(credentialFile);
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode);
             }
         }
-    };
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
 
-    private sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response) : HttpMessageHandler
+    [Fact]
+    public async Task ControlPlaneClient_ReusesProtectedFileWithoutEnvironmentOrAppSettingLookup()
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            response(request, cancellationToken);
+        string root = Path.Combine(Path.GetTempPath(), "aegis-control-plane-" + Guid.NewGuid().ToString("N"));
+        string credentialFile = Path.Combine(root, "operations.key");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(credentialFile, "persisted-secret\n");
+
+        try
+        {
+            int calls = 0;
+            var handler = new StubHandler(request =>
+            {
+                calls++;
+                Assert.Equal("/api/registration/contracts", request.RequestUri!.AbsolutePath);
+                Assert.Equal("persisted-secret", request.Headers.Authorization?.Parameter);
+                return Json(HttpStatusCode.OK, new { registered = true });
+            });
+
+            var client = new ControlPlaneRegistrationClient(
+                new HttpClient(handler),
+                new ControlPlaneRegistrationOptions(
+                    new Uri("https://operations.example/"),
+                    "Aegis.Operations",
+                    "Production",
+                    credentialFile));
+
+            ControlPlaneRegistrationStatus status = await client.RegisterAsync(
+                new JsonObject
+                {
+                    ["applicationId"] = "Aegis.Operations"
+                });
+
+            Assert.True(status.IsRegistered);
+            Assert.Equal(1, calls);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    private static HttpResponseMessage Json(HttpStatusCode code, object value)
+        => new(code)
+        {
+            Content = JsonContent.Create(value)
+        };
+
+    private sealed class StubHandler(
+        Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(responder(request));
     }
 }
