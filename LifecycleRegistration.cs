@@ -52,7 +52,8 @@ public sealed record RegistrationLifecycleOptions(
     string ApplicationId,
     string InstanceId,
     string IdentityFilePath,
-    TimeSpan? RequestTimeout = null);
+    TimeSpan? RequestTimeout = null,
+    string? RunbookReference = null);
 
 public interface IRegistrationIdentityStore
 {
@@ -414,6 +415,9 @@ public sealed class RegistrationLifecycleClient
                 identity.ApplicationId,
                 identity.InstanceId,
                 identity.InstallationId,
+                runbookReference = string.IsNullOrWhiteSpace(_options.RunbookReference)
+                    ? null
+                    : _options.RunbookReference.Trim(),
                 metadata
             })
         };
