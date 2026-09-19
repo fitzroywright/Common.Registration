@@ -21,7 +21,9 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Restore library
         run: dotnet restore Common.Registration.csproj
-      - name: Build library
+      - name: Build library Debug
+        run: dotnet build Common.Registration.csproj --no-restore --configuration Debug
+      - name: Build library Release
         run: dotnet build Common.Registration.csproj --no-restore --configuration Release
       - name: Restore tests
         run: dotnet restore Common.Registration.Tests/Common.Registration.Tests.csproj
