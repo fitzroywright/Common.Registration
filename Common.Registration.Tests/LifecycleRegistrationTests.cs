@@ -106,8 +106,8 @@ public sealed class LifecycleRegistrationTests
                 Assert.Equal(
                     "docs/RUNBOOK.md",
                     document.RootElement.GetProperty("runbookReference").GetString());
-                Assert.DoesNotContain("credential", body, StringComparison.OrdinalIgnoreCase);
-                Assert.DoesNotContain("claimToken", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("credential", body.ToLowerInvariant());
+                Assert.DoesNotContain("claimtoken", body.ToLowerInvariant());
 
                 return Json(HttpStatusCode.OK, new
                 {
