@@ -93,6 +93,50 @@ public sealed class LifecycleRegistrationTests
     }
 
     [Fact]
+    public async Task FirstRegistration_AdvertisesRunbookReferenceWithoutCredentials()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "identity.json");
+        try
+        {
+            var handler = new RecordingHandler((request, _) =>
+            {
+                string body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                using JsonDocument document = JsonDocument.Parse(body);
+                Assert.Equal(
+                    "docs/RUNBOOK.md",
+                    document.RootElement.GetProperty("runbookReference").GetString());
+                Assert.DoesNotContain("credential", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("claimToken", body, StringComparison.OrdinalIgnoreCase);
+
+                return Json(HttpStatusCode.OK, new
+                {
+                    registrationId = "reg-runbook",
+                    claimToken = "claim-secret",
+                    state = "Pending"
+                });
+            });
+
+            var client = new RegistrationLifecycleClient(
+                new HttpClient(handler),
+                new RegistrationLifecycleOptions(
+                    new Uri("https://configuration.example/"),
+                    "Aegis.Hello",
+                    "Production",
+                    path,
+                    RunbookReference: "docs/RUNBOOK.md"));
+
+            RegistrationLifecycleStatus status = await client.StepAsync();
+            Assert.Equal(RegistrationLifecycleState.Pending, status.State);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task ApprovedClaim_IsConsumedLocallyAndNextStartAuthenticates()
     {
         string root = Path.Combine(Path.GetTempPath(), "aegis-registration-" + Guid.NewGuid().ToString("N"));
