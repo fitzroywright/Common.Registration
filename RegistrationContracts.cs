@@ -6,6 +6,38 @@ using Microsoft.Extensions.Logging;
 
 namespace Common.Registration;
 
+public sealed record ApplicationPresentationMetadata(
+    string? IconUrl = null,
+    string? ShortName = null,
+    string? Accent = null)
+{
+    public string FallbackInitials(string applicationId, string? displayName = null)
+    {
+        string source = string.IsNullOrWhiteSpace(ShortName)
+            ? (string.IsNullOrWhiteSpace(displayName) ? applicationId : displayName!)
+            : ShortName!;
+
+        string[] words = source
+            .Replace("Aegis.", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("Aegis ", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
+
+        if (words.Length == 0) return "AE";
+        if (words.Length == 1) return words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant();
+        return string.Concat(words.Take(2).Select(x => char.ToUpperInvariant(x[0])));
+    }
+
+    public static bool IsSafeIconUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        string icon = value.Trim();
+        if (icon.StartsWith("/", StringComparison.Ordinal) && !icon.StartsWith("//", StringComparison.Ordinal))
+            return !icon.Contains("..", StringComparison.Ordinal);
+        return Uri.TryCreate(icon, UriKind.Absolute, out Uri? uri) &&
+               uri.Scheme == Uri.UriSchemeHttps;
+    }
+}
+
 public enum ControlPlaneRegistrationState
 {
     Registered = 0,
