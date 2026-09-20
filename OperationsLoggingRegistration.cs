@@ -106,10 +106,7 @@ public static class OperationsLoggingRegistrationExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        string? operationsUrl = configuration["Aegis:Operations:Url"]
-            ?? configuration["AegisOperations:BaseUrl"]
-            ?? configuration["Operations:SelfUrl"]
-            ?? configuration["Operations:LocalUrl"];
+        string? operationsUrl = configuration["Aegis:Operations:Url"];
         if (string.IsNullOrWhiteSpace(operationsUrl))
             return services;
 
@@ -155,8 +152,7 @@ public static class OperationsLoggingRegistrationExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        string? operationsUrl = configuration["Aegis:Operations:Url"]
-            ?? configuration["Operations:Url"];
+        string? operationsUrl = configuration["Aegis:Operations:Url"];
         if (string.IsNullOrWhiteSpace(operationsUrl))
             return services;
 
