@@ -108,7 +108,8 @@ public static class OperationsLoggingRegistrationExtensions
 
         string? operationsUrl = configuration["Aegis:Operations:Url"]
             ?? configuration["AegisOperations:BaseUrl"]
-            ?? configuration["Operations:SelfUrl"];
+            ?? configuration["Operations:SelfUrl"]
+            ?? configuration["Operations:LocalUrl"];
         if (string.IsNullOrWhiteSpace(operationsUrl))
             return services;
 
