@@ -106,9 +106,9 @@ public static class OperationsLoggingRegistrationExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        string? operationsUrl = configuration["Aegis:Operations:Url"];
-        if (string.IsNullOrWhiteSpace(operationsUrl))
-            return services;
+        string operationsUrl = AegisControlPlaneEndpoints.ResolveInternal(
+            configuration,
+            AegisControlPlaneService.Operations);
 
         if (!Uri.TryCreate(
             operationsUrl.TrimEnd('/') + "/api/operations/logs/observe",
@@ -152,9 +152,10 @@ public static class OperationsLoggingRegistrationExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        string? operationsUrl = configuration["Aegis:Operations:Url"];
-        if (string.IsNullOrWhiteSpace(operationsUrl))
-            return services;
+        string operationsUrl = AegisControlPlaneEndpoints.ResolvePublic(
+            configuration,
+            AegisControlPlaneService.Operations,
+            configurationKey: "Aegis:Operations:Url");
 
         if (!Uri.TryCreate(
             operationsUrl.TrimEnd('/') + "/api/operations/logs/observe",
