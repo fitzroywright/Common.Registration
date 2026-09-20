@@ -21,11 +21,6 @@ jobs:
         with:
           repository: fitzroywright/Common.Diagnostics
           path: Common.Diagnostics
-      - name: Checkout Common.Diagnostics
-        uses: actions/checkout@v4
-        with:
-          repository: fitzroywright/Common.Diagnostics
-          path: Common.Diagnostics
 
       - uses: actions/setup-dotnet@v4
         with:
