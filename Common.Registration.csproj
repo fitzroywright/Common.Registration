@@ -11,6 +11,7 @@
     <Compile Include="RegistrationContracts.cs" />
     <Compile Include="LifecycleRegistration.cs" />
     <Compile Include="OperationsLoggingRegistration.cs" />
+    <Compile Include="ControlPlaneEndpoints.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Common.Diagnostics\Common.Diagnostics.csproj" Condition="Exists('Common.Diagnostics\Common.Diagnostics.csproj')" />
