@@ -16,16 +16,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout Common.Diagnostics
+        uses: actions/checkout@v4
+        with:
+          repository: fitzroywright/Common.Diagnostics
+          path: Common.Diagnostics
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
       - name: Restore library
-        run: dotnet restore Common.Registration.csproj
+        run: dotnet restore Common.Registration.csproj -p:CommonRoot="${{ github.workspace }}"
       - name: Build library Debug
-        run: dotnet build Common.Registration.csproj --no-restore --configuration Debug
+        run: dotnet build Common.Registration.csproj --no-restore --configuration Debug -p:CommonRoot="${{ github.workspace }}"
       - name: Build library Release
-        run: dotnet build Common.Registration.csproj --no-restore --configuration Release
+        run: dotnet build Common.Registration.csproj --no-restore --configuration Release -p:CommonRoot="${{ github.workspace }}"
       - name: Restore tests
-        run: dotnet restore Common.Registration.Tests/Common.Registration.Tests.csproj
+        run: dotnet restore Common.Registration.Tests/Common.Registration.Tests.csproj -p:CommonRoot="${{ github.workspace }}"
       - name: Test
-        run: dotnet test Common.Registration.Tests/Common.Registration.Tests.csproj --no-restore --configuration Release
+        run: dotnet test Common.Registration.Tests/Common.Registration.Tests.csproj --no-restore --configuration Release -p:CommonRoot="${{ github.workspace }}"

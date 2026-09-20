@@ -1,3 +1,4 @@
+using Common.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -242,12 +243,14 @@ public sealed class RegistrationLifecycleClient
     private readonly RegistrationLifecycleOptions _options;
     private readonly IRegistrationIdentityStore _identityStore;
     private readonly ILogger _logger;
+    private readonly ILifecycleEventSink _lifecycle;
 
     public RegistrationLifecycleClient(
         HttpClient http,
         RegistrationLifecycleOptions options,
         IRegistrationIdentityStore? identityStore = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        ILifecycleEventSink? lifecycleEventSink = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
@@ -261,6 +264,7 @@ public sealed class RegistrationLifecycleClient
         _options = options;
         _identityStore = identityStore ?? new FileRegistrationIdentityStore(options.IdentityFilePath);
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        _lifecycle = lifecycleEventSink ?? new NullLifecycleEventSink();
         _http.BaseAddress = new Uri(options.ConfigurationBaseUri.AbsoluteUri.TrimEnd('/') + "/");
         _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(10);
     }
@@ -290,13 +294,15 @@ public sealed class RegistrationLifecycleClient
             ["CorrelationId"] = correlationId
         });
 
+        await EmitLifecycleAsync(identity, "Step", LifecycleEventOutcome.Started, correlationId, null, cancellationToken).ConfigureAwait(false);
+
         if (!string.IsNullOrWhiteSpace(document.Credential))
         {
             RegistrationLifecycleStatus authenticated =
                 await AuthenticateAsync(document, identity, correlationId, cancellationToken).ConfigureAwait(false);
 
             if (authenticated.State != RegistrationLifecycleState.Unregistered)
-                return authenticated;
+                return await CompleteAsync(identity, authenticated, correlationId, cancellationToken).ConfigureAwait(false);
 
             document = await _identityStore.LoadOrCreateAsync(
                 _options.ApplicationId,
@@ -319,16 +325,17 @@ public sealed class RegistrationLifecycleClient
                 _logger.LogWarning(
                     "Registration claim is no longer usable; requesting explicit credential recovery.");
 
-                return await RequestRecoveryAsync(
+                RegistrationLifecycleStatus recovery = await RequestRecoveryAsync(
                     document,
                     identity,
                     correlationId,
                     cancellationToken).ConfigureAwait(false);
+                return await CompleteAsync(identity, recovery, correlationId, cancellationToken).ConfigureAwait(false);
             }
 
             if (claimed.State != RegistrationLifecycleState.Error ||
                 claimed.StatusCode != HttpStatusCode.NotFound)
-                return claimed;
+                return await CompleteAsync(identity, claimed, correlationId, cancellationToken).ConfigureAwait(false);
 
             // A missing server-side registration means the authoritative record was purged.
             // Only then is a fresh introduction appropriate.
@@ -340,19 +347,69 @@ public sealed class RegistrationLifecycleClient
         {
             // The installation has an established identity but no usable credential.
             // This is recovery, never a second normal registration.
-            return await RequestRecoveryAsync(
+            RegistrationLifecycleStatus recovery = await RequestRecoveryAsync(
                 document,
                 identity,
                 correlationId,
                 cancellationToken).ConfigureAwait(false);
+            return await CompleteAsync(identity, recovery, correlationId, cancellationToken).ConfigureAwait(false);
         }
 
-        return await RequestRegistrationAsync(
+        RegistrationLifecycleStatus requested = await RequestRegistrationAsync(
             document,
             identity,
             metadata,
             correlationId,
             cancellationToken).ConfigureAwait(false);
+        return await CompleteAsync(identity, requested, correlationId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<RegistrationLifecycleStatus> CompleteAsync(
+        RegistrationIdentity identity,
+        RegistrationLifecycleStatus status,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        LifecycleEventOutcome outcome = status.State switch
+        {
+            RegistrationLifecycleState.Registered => LifecycleEventOutcome.Succeeded,
+            RegistrationLifecycleState.Error or RegistrationLifecycleState.IdentityConflict or RegistrationLifecycleState.Rejected => LifecycleEventOutcome.Failed,
+            _ => LifecycleEventOutcome.Warning
+        };
+
+        await EmitLifecycleAsync(identity, status.State.ToString(), outcome, status.CorrelationId ?? correlationId, status.RegistrationId, cancellationToken).ConfigureAwait(false);
+        return status;
+    }
+
+    private async Task EmitLifecycleAsync(
+        RegistrationIdentity identity,
+        string stage,
+        LifecycleEventOutcome outcome,
+        string correlationId,
+        string? registrationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _lifecycle.EmitAsync(
+                LifecycleEvent.Create(
+                    identity.ApplicationId,
+                    identity.InstanceId,
+                    "Registration",
+                    stage,
+                    outcome,
+                    correlationId,
+                    relatedBusinessId: registrationId),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Registration lifecycle telemetry emission failed; registration continues.");
+        }
     }
 
     public async Task<HttpStatusCode> PublishConfigurationContractAsync(
