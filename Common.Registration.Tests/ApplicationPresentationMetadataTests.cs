@@ -1,3 +1,5 @@
+using Xunit;
+
 namespace Common.Registration.Tests;
 
 public sealed class ApplicationPresentationMetadataTests
