@@ -10,11 +10,14 @@
   <ItemGroup>
     <Compile Include="RegistrationContracts.cs" />
     <Compile Include="LifecycleRegistration.cs" />
+    <Compile Include="OperationsLoggingRegistration.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Common.Diagnostics\Common.Diagnostics.csproj" Condition="Exists('Common.Diagnostics\Common.Diagnostics.csproj')" />
     <ProjectReference Include="..\Common.Diagnostics\Common.Diagnostics.csproj" Condition="!Exists('Common.Diagnostics\Common.Diagnostics.csproj') And Exists('..\Common.Diagnostics\Common.Diagnostics.csproj')" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
