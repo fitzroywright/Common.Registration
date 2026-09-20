@@ -51,8 +51,97 @@ public sealed class RegistrationOperationsLogCredentialSource : IOperationsLogCr
     }
 }
 
+public sealed class ControlPlaneOperationsLogCredentialSource : IOperationsLogCredentialSource
+{
+    private readonly string credentialFile;
+    private readonly string applicationId;
+    private readonly string instanceId;
+
+    public ControlPlaneOperationsLogCredentialSource(
+        string credentialFile,
+        string applicationId,
+        string instanceId)
+    {
+        this.credentialFile = Path.GetFullPath(credentialFile);
+        this.applicationId = applicationId;
+        this.instanceId = instanceId;
+    }
+
+    public async ValueTask<OperationsLogCredential?> GetAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!File.Exists(credentialFile))
+                return null;
+
+            string credential =
+                (await File.ReadAllTextAsync(credentialFile, cancellationToken).ConfigureAwait(false)).Trim();
+            return string.IsNullOrWhiteSpace(credential)
+                ? null
+                : new OperationsLogCredential(applicationId, instanceId, "control-plane", credential);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
 public static class OperationsLoggingRegistrationExtensions
 {
+    public static IServiceCollection AddAegisControlPlaneOperationsLogging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string applicationId,
+        string instanceId,
+        string credentialFile,
+        string environment,
+        LogLevel minimumLevel = LogLevel.Information)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        string? operationsUrl = configuration["Aegis:Operations:Url"]
+            ?? configuration["AegisOperations:BaseUrl"]
+            ?? configuration["Operations:SelfUrl"];
+        if (string.IsNullOrWhiteSpace(operationsUrl))
+            return services;
+
+        if (!Uri.TryCreate(
+            operationsUrl.TrimEnd('/') + "/api/operations/logs/observe",
+            UriKind.Absolute,
+            out Uri? endpoint))
+            return services;
+
+        var options = new OperationsLogPublisherOptions
+        {
+            Endpoint = endpoint,
+            ApplicationId = applicationId,
+            InstanceId = instanceId,
+            Environment = environment,
+            Host = Environment.MachineName,
+            MinimumLevel = minimumLevel,
+            QueueCapacity = Math.Clamp(configuration.GetValue("Aegis:Operations:Logging:QueueCapacity", 5000), 100, 100000),
+            BatchSize = Math.Clamp(configuration.GetValue("Aegis:Operations:Logging:BatchSize", 100), 1, 1000),
+            FlushInterval = TimeSpan.FromMilliseconds(Math.Clamp(configuration.GetValue("Aegis:Operations:Logging:FlushMilliseconds", 1000), 100, 30000))
+        };
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILoggerProvider>(
+            new OperationsLogLoggerProvider(
+                options,
+                new ControlPlaneOperationsLogCredentialSource(
+                    credentialFile,
+                    applicationId,
+                    instanceId))));
+
+        return services;
+    }
+
     public static IServiceCollection AddAegisOperationsLogging(
         this IServiceCollection services,
         IConfiguration configuration,
