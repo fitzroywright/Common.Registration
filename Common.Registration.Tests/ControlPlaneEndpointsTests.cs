@@ -24,12 +24,10 @@ public sealed class ControlPlaneEndpointsTests
     [Fact]
     public void Resolve_internal_prefers_configuration_and_trims_trailing_slash()
     {
-        IConfiguration configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Aegis:Configuration:Url"] = "http://10.0.0.20:5200/"
-            })
-            .Build();
+        var configuration = new ConfigurationManager
+        {
+            ["Aegis:Configuration:Url"] = "http://10.0.0.20:5200/"
+        };
 
         string value = AegisControlPlaneEndpoints.ResolveInternal(
             configuration,
@@ -41,7 +39,7 @@ public sealed class ControlPlaneEndpointsTests
     [Fact]
     public void Resolve_public_uses_shared_default_when_missing()
     {
-        IConfiguration configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationManager();
 
         string value = AegisControlPlaneEndpoints.ResolvePublic(
             configuration,
@@ -53,7 +51,7 @@ public sealed class ControlPlaneEndpointsTests
     [Fact]
     public void Override_key_allows_external_apps_to_use_public_default_with_existing_url_key()
     {
-        IConfiguration configuration = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationManager();
 
         string value = AegisControlPlaneEndpoints.ResolvePublic(
             configuration,
