@@ -438,22 +438,74 @@ public sealed class RegistrationLifecycleClient
         request.Headers.TryAddWithoutValidation("X-Aegis-Installation-Id", document.InstallationId);
         request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
 
-        using HttpResponseMessage response =
-            await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var identity = new RegistrationIdentity(
+            document.ApplicationId,
+            document.InstanceId,
+            document.InstallationId);
 
-        if (response.IsSuccessStatusCode)
+        await EmitLifecycleAsync(
+            identity,
+            "ConfigurationContract",
+            LifecycleEventOutcome.Started,
+            correlationId,
+            document.RegistrationId,
+            cancellationToken).ConfigureAwait(false);
+
+        try
         {
-            _logger.LogInformation(
-                "Configuration contract published through authenticated durable identity.");
+            using HttpResponseMessage response =
+                await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation(
+                    "Configuration contract published through authenticated durable identity.");
+
+                await EmitLifecycleAsync(
+                    identity,
+                    "ConfigurationContractPublished",
+                    LifecycleEventOutcome.Succeeded,
+                    correlationId,
+                    document.RegistrationId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Configuration contract publication failed with HTTP {StatusCode}.",
+                    (int)response.StatusCode);
+
+                await EmitLifecycleAsync(
+                    identity,
+                    "ConfigurationContract",
+                    LifecycleEventOutcome.Failed,
+                    correlationId,
+                    document.RegistrationId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return response.StatusCode;
         }
-        else
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogWarning(
-                "Configuration contract publication failed with HTTP {StatusCode}.",
-                (int)response.StatusCode);
-        }
+                "Configuration contract publication failed because Configuration is unavailable: {FailureType}.",
+                ex.GetType().Name);
 
-        return response.StatusCode;
+            await EmitLifecycleAsync(
+                identity,
+                "ConfigurationContract",
+                LifecycleEventOutcome.Failed,
+                correlationId,
+                document.RegistrationId,
+                cancellationToken).ConfigureAwait(false);
+
+            throw;
+        }
     }
 
     private async Task<RegistrationLifecycleStatus> RequestRegistrationAsync(
