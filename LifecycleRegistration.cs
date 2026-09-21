@@ -266,7 +266,7 @@ public sealed class RegistrationLifecycleClient
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _lifecycle = lifecycleEventSink ?? new NullLifecycleEventSink();
         _http.BaseAddress = new Uri(options.ConfigurationBaseUri.AbsoluteUri.TrimEnd('/') + "/");
-        _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(10);
+        _http.Timeout = options.RequestTimeout ?? TimeSpan.FromSeconds(30);
     }
 
     public async Task<RegistrationLifecycleStatus> StepAsync(
@@ -493,8 +493,10 @@ public sealed class RegistrationLifecycleClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             _logger.LogWarning(
-                "Configuration contract publication failed because Configuration is unavailable: {FailureType}.",
-                ex.GetType().Name);
+                ex is TaskCanceledException
+                    ? "Configuration contract publication timed out after {TimeoutSeconds} seconds."
+                    : "Configuration contract publication failed because Configuration is unavailable: {FailureType}.",
+                ex is TaskCanceledException ? _http.Timeout.TotalSeconds : ex.GetType().Name);
 
             await EmitLifecycleAsync(
                 identity,
