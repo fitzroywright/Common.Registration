@@ -610,8 +610,15 @@ public sealed class RegistrationLifecycleClient
             await ReadJsonOrDefaultAsync<ClaimResponse>(response, cancellationToken).ConfigureAwait(false);
 
         if (response.StatusCode == HttpStatusCode.Accepted)
-            return Status(RegistrationLifecycleState.Pending, identity, document.RegistrationId, null,
+        {
+            RegistrationLifecycleState waitingState =
+                string.Equals(payload?.State, "RecoveryPending", StringComparison.OrdinalIgnoreCase)
+                    ? RegistrationLifecycleState.RecoveryPending
+                    : RegistrationLifecycleState.Pending;
+
+            return Status(waitingState, identity, document.RegistrationId, null,
                 response.StatusCode, correlationId);
+        }
 
         if (response.StatusCode == HttpStatusCode.Forbidden)
             return Status(RegistrationLifecycleState.Rejected, identity, document.RegistrationId,
