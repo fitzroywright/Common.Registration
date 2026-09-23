@@ -2,6 +2,7 @@ using Common.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 
 namespace Common.Registration;
