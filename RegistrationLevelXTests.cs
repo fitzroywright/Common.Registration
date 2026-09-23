@@ -1,5 +1,6 @@
 using Common.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -196,6 +197,27 @@ public sealed class RegistrationIdentityStoreRoundTripLevelXTest : ILevelXLocalT
     }
 }
 
+
+public sealed class RegistrationLevelXRequestCredentialProvider(
+    RegistrationLifecycleOptions options) : ILevelXRequestCredentialProvider
+{
+    private readonly RegistrationLifecycleOptions options =
+        options ?? throw new ArgumentNullException(nameof(options));
+
+    public async ValueTask<string?> GetCredentialAsync(
+        Microsoft.AspNetCore.Http.HttpContext context,
+        CancellationToken cancellationToken = default)
+    {
+        RegistrationIdentityDocument document = await new FileRegistrationIdentityStore(options.IdentityFilePath)
+            .LoadOrCreateAsync(options.ApplicationId, options.InstanceId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return string.IsNullOrWhiteSpace(document.Credential)
+            ? null
+            : document.Credential.Trim();
+    }
+}
+
 public static class RegistrationLevelXServiceCollectionExtensions
 {
     public static IServiceCollection AddCommonRegistrationLevelX(
@@ -211,6 +233,7 @@ public static class RegistrationLevelXServiceCollectionExtensions
         services.AddSingleton<ILevelXLocalTest, RegistrationConfigurationTcpLevelXTest>();
         services.AddSingleton<ILevelXLocalTest, RegistrationContractRedactionLevelXTest>();
         services.AddSingleton<ILevelXLocalTest, RegistrationIdentityStoreRoundTripLevelXTest>();
+        services.Replace(ServiceDescriptor.Singleton<ILevelXRequestCredentialProvider, RegistrationLevelXRequestCredentialProvider>());
         return services;
     }
 }
