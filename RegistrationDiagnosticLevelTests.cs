@@ -7,7 +7,7 @@ using System.Text.Json.Nodes;
 
 namespace Common.Registration;
 
-public sealed class RegistrationConfigurationLevelXTest(RegistrationLifecycleOptions options) : ILevelXLocalTest
+public sealed class RegistrationConfigurationDiagnosticLevelTest(RegistrationLifecycleOptions options) : IDiagnosticLevelLocalTest
 {
     private readonly RegistrationLifecycleOptions options = options ?? throw new ArgumentNullException(nameof(options));
     public string TestId => "COMMON.REGISTRATION.L5.CONFIG.VALID";
@@ -33,7 +33,7 @@ public sealed class RegistrationConfigurationLevelXTest(RegistrationLifecycleOpt
     }
 }
 
-public sealed class RegistrationIdentityFileLevelXTest(RegistrationLifecycleOptions options) : ILevelXLocalTest
+public sealed class RegistrationIdentityFileDiagnosticLevelTest(RegistrationLifecycleOptions options) : IDiagnosticLevelLocalTest
 {
     private readonly RegistrationLifecycleOptions options = options ?? throw new ArgumentNullException(nameof(options));
     public string TestId => "COMMON.REGISTRATION.L4.IDENTITY.FILE";
@@ -73,7 +73,7 @@ public sealed class RegistrationIdentityFileLevelXTest(RegistrationLifecycleOpti
     }
 }
 
-public sealed class RegistrationConfigurationDnsLevelXTest(RegistrationLifecycleOptions options) : ILevelXLocalTest
+public sealed class RegistrationConfigurationDnsDiagnosticLevelTest(RegistrationLifecycleOptions options) : IDiagnosticLevelLocalTest
 {
     private readonly RegistrationLifecycleOptions options = options ?? throw new ArgumentNullException(nameof(options));
     public string TestId => "COMMON.REGISTRATION.L4.CONFIGURATION.DNS";
@@ -102,7 +102,7 @@ public sealed class RegistrationConfigurationDnsLevelXTest(RegistrationLifecycle
     }
 }
 
-public sealed class RegistrationConfigurationTcpLevelXTest(RegistrationLifecycleOptions options) : ILevelXLocalTest
+public sealed class RegistrationConfigurationTcpDiagnosticLevelTest(RegistrationLifecycleOptions options) : IDiagnosticLevelLocalTest
 {
     private readonly RegistrationLifecycleOptions options = options ?? throw new ArgumentNullException(nameof(options));
     public string TestId => "COMMON.REGISTRATION.L4.CONFIGURATION.TCP";
@@ -134,7 +134,7 @@ public sealed class RegistrationConfigurationTcpLevelXTest(RegistrationLifecycle
     }
 }
 
-public sealed class RegistrationContractRedactionLevelXTest : ILevelXLocalTest
+public sealed class RegistrationContractRedactionDiagnosticLevelTest : IDiagnosticLevelLocalTest
 {
     public string TestId => "COMMON.REGISTRATION.L5.CONTRACT.REDACTION";
     public string Name => "Configuration contract strips value-bearing fields";
@@ -162,7 +162,7 @@ public sealed class RegistrationContractRedactionLevelXTest : ILevelXLocalTest
     }
 }
 
-public sealed class RegistrationIdentityStoreRoundTripLevelXTest : ILevelXLocalTest
+public sealed class RegistrationIdentityStoreRoundTripDiagnosticLevelTest : IDiagnosticLevelLocalTest
 {
     public string TestId => "COMMON.REGISTRATION.L3.IDENTITY.STORE_ROUNDTRIP";
     public string Name => "Registration identity store diagnostic round trip";
@@ -172,14 +172,14 @@ public sealed class RegistrationIdentityStoreRoundTripLevelXTest : ILevelXLocalT
 
     public async Task<EngineeringDiagnosticCheckResult> RunAsync(CancellationToken cancellationToken)
     {
-        string directory = Path.Combine(Path.GetTempPath(), "aegis-levelx-registration", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(Path.GetTempPath(), "aegis-diagnostic-level-registration", Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "identity.json");
         try
         {
             Directory.CreateDirectory(directory);
             var store = new FileRegistrationIdentityStore(path);
-            RegistrationIdentityDocument first = await store.LoadOrCreateAsync("LevelX.Probe", "probe", cancellationToken).ConfigureAwait(false);
-            RegistrationIdentityDocument second = await store.LoadOrCreateAsync("LevelX.Probe", "probe", cancellationToken).ConfigureAwait(false);
+            RegistrationIdentityDocument first = await store.LoadOrCreateAsync("DiagnosticLevel.Probe", "probe", cancellationToken).ConfigureAwait(false);
+            RegistrationIdentityDocument second = await store.LoadOrCreateAsync("DiagnosticLevel.Probe", "probe", cancellationToken).ConfigureAwait(false);
             bool stable = string.Equals(first.InstallationId, second.InstallationId, StringComparison.Ordinal);
             return stable
                 ? EngineeringDiagnosticPolicy.Passed(TestId, Name, "Diagnostic identity persisted and reloaded with a stable InstallationId.")
@@ -196,21 +196,21 @@ public sealed class RegistrationIdentityStoreRoundTripLevelXTest : ILevelXLocalT
     }
 }
 
-public static class RegistrationLevelXServiceCollectionExtensions
+public static class RegistrationDiagnosticLevelServiceCollectionExtensions
 {
-    public static IServiceCollection AddCommonRegistrationLevelX(
+    public static IServiceCollection AddCommonRegistrationDiagnosticLevel(
         this IServiceCollection services,
         RegistrationLifecycleOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
         services.AddSingleton(options);
-        services.AddSingleton<ILevelXLocalTest, RegistrationConfigurationLevelXTest>();
-        services.AddSingleton<ILevelXLocalTest, RegistrationIdentityFileLevelXTest>();
-        services.AddSingleton<ILevelXLocalTest, RegistrationConfigurationDnsLevelXTest>();
-        services.AddSingleton<ILevelXLocalTest, RegistrationConfigurationTcpLevelXTest>();
-        services.AddSingleton<ILevelXLocalTest, RegistrationContractRedactionLevelXTest>();
-        services.AddSingleton<ILevelXLocalTest, RegistrationIdentityStoreRoundTripLevelXTest>();
+        services.AddSingleton<IDiagnosticLevelLocalTest, RegistrationConfigurationDiagnosticLevelTest>();
+        services.AddSingleton<IDiagnosticLevelLocalTest, RegistrationIdentityFileDiagnosticLevelTest>();
+        services.AddSingleton<IDiagnosticLevelLocalTest, RegistrationConfigurationDnsDiagnosticLevelTest>();
+        services.AddSingleton<IDiagnosticLevelLocalTest, RegistrationConfigurationTcpDiagnosticLevelTest>();
+        services.AddSingleton<IDiagnosticLevelLocalTest, RegistrationContractRedactionDiagnosticLevelTest>();
+        services.AddSingleton<IDiagnosticLevelLocalTest, RegistrationIdentityStoreRoundTripDiagnosticLevelTest>();
         return services;
     }
 }

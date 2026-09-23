@@ -12,7 +12,7 @@
     <Compile Include="LifecycleRegistration.cs" />
     <Compile Include="OperationsLoggingRegistration.cs" />
     <Compile Include="ControlPlaneEndpoints.cs" />
-    <Compile Include="RegistrationLevelXTests.cs" />
+    <Compile Include="RegistrationDiagnosticLevelTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Common.Diagnostics\Common.Diagnostics.csproj" Condition="Exists('Common.Diagnostics\Common.Diagnostics.csproj')" />
