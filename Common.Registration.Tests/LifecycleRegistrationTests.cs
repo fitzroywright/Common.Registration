@@ -371,6 +371,8 @@ public sealed class LifecycleRegistrationTests
                 Assert.Equal("Aegis.Hello", request.Headers.GetValues("X-Aegis-Application-Id").Single());
                 Assert.Equal("Production", request.Headers.GetValues("X-Aegis-Instance-Id").Single());
                 Assert.Equal(identity.InstallationId, request.Headers.GetValues("X-Aegis-Installation-Id").Single());
+                Assert.Equal(Common.Diagnostics.ApplicationRuntimeSession.Id,
+                    Assert.Single(request.Headers.GetValues(Common.Diagnostics.ApplicationRuntimeSession.HeaderName)));
                 Assert.True(request.Headers.Contains("X-Aegis-Correlation-Id"));
                 return new HttpResponseMessage(HttpStatusCode.OK);
             });

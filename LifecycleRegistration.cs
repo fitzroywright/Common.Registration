@@ -437,6 +437,7 @@ public sealed class RegistrationLifecycleClient
         request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", document.InstanceId);
         request.Headers.TryAddWithoutValidation("X-Aegis-Installation-Id", document.InstallationId);
         request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
+        ApplicationRuntimeSession.Apply(request);
 
         var identity = new RegistrationIdentity(
             document.ApplicationId,
@@ -533,6 +534,7 @@ public sealed class RegistrationLifecycleClient
             })
         };
         request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
+        ApplicationRuntimeSession.Apply(request);
 
         using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
@@ -603,6 +605,7 @@ public sealed class RegistrationLifecycleClient
             })
         };
         request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
+        ApplicationRuntimeSession.Apply(request);
 
         using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
@@ -664,6 +667,7 @@ public sealed class RegistrationLifecycleClient
         request.Headers.TryAddWithoutValidation("X-Aegis-Instance-Id", identity.InstanceId);
         request.Headers.TryAddWithoutValidation("X-Aegis-Installation-Id", identity.InstallationId);
         request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
+        ApplicationRuntimeSession.Apply(request);
 
         using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         AuthenticationResponse? payload =
@@ -740,6 +744,7 @@ public sealed class RegistrationLifecycleClient
             })
         };
         request.Headers.TryAddWithoutValidation("X-Aegis-Correlation-Id", correlationId);
+        ApplicationRuntimeSession.Apply(request);
 
         using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         RegistrationRequestResponse? payload =
