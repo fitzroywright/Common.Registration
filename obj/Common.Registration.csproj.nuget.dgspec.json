@@ -19,7 +19,6 @@
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "D:\\Projects\\Aegis.Cafeteria\\NuGet.Config",
           "C:\\Users\\FWright.FFTPJ\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 25.1.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 26.1.config",
@@ -30,9 +29,11 @@
           "net11.0"
         ],
         "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 25.1\\Components\\System\\Components\\Packages": {},
+          "C:\\Program Files\\DevExpress 26.1\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
-          "https://api.nuget.org/v3/index.json": {},
-          "https://nuget.pkg.github.com/fitzroywright/index.json": {}
+          "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net11.0": {
@@ -551,7 +552,6 @@
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "D:\\Projects\\Aegis.Cafeteria\\NuGet.Config",
           "C:\\Users\\FWright.FFTPJ\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 25.1.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 26.1.config",
@@ -562,9 +562,11 @@
           "net11.0"
         ],
         "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 25.1\\Components\\System\\Components\\Packages": {},
+          "C:\\Program Files\\DevExpress 26.1\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
-          "https://api.nuget.org/v3/index.json": {},
-          "https://nuget.pkg.github.com/fitzroywright/index.json": {}
+          "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net11.0": {
