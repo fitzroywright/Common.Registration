@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "dgSpecHash": "7fc2JxcFbXM=",
+  "success": true,
+  "projectFilePath": "D:\\Projects\\Common\\Common.Registration\\Common.Registration.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\microsoft.data.sqlite\\11.0.0\\microsoft.data.sqlite.11.0.0.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\microsoft.data.sqlite.core\\11.0.0\\microsoft.data.sqlite.core.11.0.0.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\microsoft.extensions.configuration\\11.0.0\\microsoft.extensions.configuration.11.0.0.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\microsoft.extensions.configuration.binder\\11.0.0\\microsoft.extensions.configuration.binder.11.0.0.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\sqlite\\3.53.4\\sqlite.3.53.4.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\sqlitepclraw.bundle_e_sqlite3\\3.0.5\\sqlitepclraw.bundle_e_sqlite3.3.0.5.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\sqlitepclraw.config.e_sqlite3\\3.0.5\\sqlitepclraw.config.e_sqlite3.3.0.5.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\sqlitepclraw.core\\3.0.5\\sqlitepclraw.core.3.0.5.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\sqlitepclraw.lib.e_sqlite3\\3.53.3\\sqlitepclraw.lib.e_sqlite3.3.53.3.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\sqlitepclraw.provider.e_sqlite3\\3.0.5\\sqlitepclraw.provider.e_sqlite3.3.0.5.nupkg.sha512",
+    "C:\\Users\\FWright.FFTPJ\\.nuget\\packages\\system.security.cryptography.protecteddata\\11.0.0\\system.security.cryptography.protecteddata.11.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

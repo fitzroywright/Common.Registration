@@ -1,0 +1,16 @@
+D:\Projects\Common\Common.Registration\bin\Release\net10.0\Common.Registration.deps.json
+D:\Projects\Common\Common.Registration\bin\Release\net10.0\Common.Registration.dll
+D:\Projects\Common\Common.Registration\bin\Release\net10.0\Common.Registration.pdb
+D:\Projects\Common\Common.Registration\bin\Release\net10.0\Common.Diagnostics.dll
+D:\Projects\Common\Common.Registration\bin\Release\net10.0\Common.Diagnostics.pdb
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.csproj.AssemblyReference.cache
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.GeneratedMSBuildEditorConfig.editorconfig
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.AssemblyInfoInputs.cache
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.AssemblyInfo.cs
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.csproj.CoreCompileInputs.cache
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.sourcelink.json
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.R.CB0D53BE.Up2Date
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.dll
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\refint\Common.Registration.dll
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\Common.Registration.pdb
+D:\Projects\Common\Common.Registration\obj\Release\net10.0\ref\Common.Registration.dll
